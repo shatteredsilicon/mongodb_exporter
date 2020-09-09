@@ -34,11 +34,11 @@ jobs:
       run: |
         make init
 
-    - name: Test
-      run: |
-        TEST_MONGODB_IMAGE=${{ matrix.image }} make test-cluster
-        make test
-        make test-cluster-clean
+      - name: Test
+        run: |
+          TEST_MONGODB_IMAGE=${{ matrix.image }} make test-cluster
+          make test-race
+          make test-cluster-clean
 
     - name: Run checks/linters
       run: |
