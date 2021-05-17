@@ -15,14 +15,33 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     strategy:
-        matrix:
-            image:
-                - "mongo:3.6"
-                - "mongo:4.0"
-                - "mongo:4.2"
-                - "percona/percona-server-mongodb:3.6"
-                - "percona/percona-server-mongodb:4.0"
-                - "percona/percona-server-mongodb:4.2"
+      fail-fast: false
+      matrix:
+        go-version:
+          - 1.15.x
+          - 1.16.x
+        image:
+          - mongo:3.6
+          - mongo:4.0
+          - mongo:4.2
+          - mongo:4.4
+          - percona/percona-server-mongodb:3.6
+          - percona/percona-server-mongodb:4.0
+          - percona/percona-server-mongodb:4.2
+        os: [ubuntu-latest]
+        may-fail: [false]
+
+        include:
+          # test only one image on tip to detect major Go changes earlier
+          # without wasting too much time on CI
+          - go-version: tip
+            image: mongo:4.2
+            os: ubuntu-latest
+            may-fail: true
+
+    continue-on-error: ${{ matrix.may-fail }}
+    runs-on: ${{ matrix.os }}
+
     steps:
       - name: Set up Go release
         if: matrix.go-version != 'tip'
