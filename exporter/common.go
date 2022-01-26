@@ -172,6 +172,12 @@ func listAllCollections(ctx context.Context, client *mongo.Client, filterInNames
 			parts := strings.Split(namespace, ".")
 			dbname := strings.TrimSpace(parts[0])
 
+
+	for _, db := range dbs {
+		for _, namespace := range filterNS {
+			parts := strings.Split(namespace, ".")
+			dbname := strings.TrimSpace(parts[0])
+
 			if dbname == "" || dbname != db {
 				continue
 			}
