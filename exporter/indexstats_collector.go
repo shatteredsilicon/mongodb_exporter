@@ -31,26 +31,29 @@ type indexstatsCollector struct {
 	ctx  context.Context
 	base *baseCollector
 
-	discoveringMode bool
-	topologyInfo    labelsGetter
+	discoveringMode         bool
+	overrideDescendingIndex bool
+	topologyInfo            labelsGetter
 
 	collections []string
 }
 
 // newIndexStatsCollector creates a collector for statistics on index usage.
-func newIndexStatsCollector(ctx context.Context, client *mongo.Client, logger *logrus.Logger, discovery bool, topology labelsGetter, collections []string) *indexstatsCollector {
+func newIndexStatsCollector(ctx context.Context, client *mongo.Client, logger *logrus.Logger, discovery, overrideDescendingIndex bool, topology labelsGetter, collections []string) *indexstatsCollector {
 	return &indexstatsCollector{
 		ctx:  ctx,
 		base: newBaseCollector(client, logger),
 
-		discoveringMode: discovery,
-		topologyInfo:    topology,
-		collections:     collections,
+		discoveringMode:         discovery,
+		topologyInfo:            topology,
+		overrideDescendingIndex: overrideDescendingIndex,
+
+		collections: collections,
 	}
 }
 
 func (d *indexstatsCollector) Describe(ch chan<- *prometheus.Desc) {
-	d.base.Describe(ch, d.collect)
+	d.base.Describe(d.ctx, ch, d.collect)
 }
 
 func (d *indexstatsCollector) Collect(ch chan<- prometheus.Metric) {
@@ -101,16 +104,24 @@ func (d *indexstatsCollector) collect(ch chan<- prometheus.Metric) {
 			continue
 		}
 
-		logger.Debugf("indexStats for %s.%s", database, collection)
-		debugResult(logger, stats)
+		d.base.logger.Debugf("indexStats for %s.%s", database, collection)
+
+		debugResult(d.base.logger, stats)
 
 		for _, metric := range stats {
+			indexName := fmt.Sprintf("%s", metric["name"])
+			// Override the label name
+			if d.overrideDescendingIndex {
+				indexName = strings.ReplaceAll(fmt.Sprintf("%s", metric["name"]), "-1", "DESC")
+			}
+
 			// prefix and labels are needed to avoid duplicated metric names since the metrics are the
 			// same, for different collections.
-			prefix := fmt.Sprintf("%s_%s_%s", database, collection, metric["name"])
+			prefix := "indexstats"
 			labels := d.topologyInfo.baseLabels()
-			labels["namespace"] = database + "." + collection
-			labels["key_name"] = fmt.Sprintf("%s", metric["name"])
+			labels["database"] = database
+			labels["collection"] = collection
+			labels["key_name"] = indexName
 
 			metrics := sanitizeMetrics(metric)
 			for _, metric := range makeMetrics(prefix, metrics, labels, false) {

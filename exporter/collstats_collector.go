@@ -52,7 +52,7 @@ func newCollectionStatsCollector(ctx context.Context, client *mongo.Client, logg
 }
 
 func (d *collstatsCollector) Describe(ch chan<- *prometheus.Desc) {
-	d.base.Describe(ch, d.collect)
+	d.base.Describe(d.ctx, ch, d.collect)
 }
 
 func (d *collstatsCollector) Collect(ch chan<- prometheus.Metric) {
@@ -120,11 +120,7 @@ func (d *collstatsCollector) collect(ch chan<- prometheus.Metric) {
 		logger.Debugf("$collStats metrics for %s.%s", database, collection)
 		debugResult(logger, stats)
 
-		// Since all collections will have the same fields, we need to use a metric prefix (db+col)
-		// to differentiate metrics between collection. Labels are being set only to matke it easier
-		// to filter
-		prefix := database + "." + collection
-
+		prefix := "collstats"
 		labels := d.topologyInfo.baseLabels()
 		labels["database"] = database
 		labels["collection"] = collection

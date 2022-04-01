@@ -65,6 +65,8 @@ type Opts struct {
 	EnableIndexStats       bool
 	EnableCollStats        bool
 
+	EnableOverrideDescendingIndex bool
+
 	IndexStatsCollections []string
 	Logger                *logrus.Logger
 	Path                  string
@@ -165,7 +167,8 @@ func (e *Exporter) makeRegistry(ctx context.Context, client *mongo.Client, topol
 	// If we manually set the collection names we want or auto discovery is set.
 	if (len(e.opts.IndexStatsCollections) > 0 || e.opts.DiscoveringMode) && e.opts.EnableIndexStats && limitsOk && requestOpts.EnableIndexStats {
 		ic := newIndexStatsCollector(ctx, client, e.opts.Logger,
-			e.opts.DiscoveringMode, topologyInfo, e.opts.IndexStatsCollections)
+			e.opts.DiscoveringMode, e.opts.EnableOverrideDescendingIndex,
+			topologyInfo, e.opts.IndexStatsCollections)
 		registry.MustRegister(ic)
 	}
 
@@ -293,18 +296,7 @@ func (e *Exporter) Handler() http.Handler {
 		}
 
 		// Topology can change between requests, so we need to get it every time.
-		var ti *topologyInfo
-		if client != nil {
-			ti, err = newTopologyInfo(ctx, client)
-			if err != nil {
-				e.logger.Errorf("Cannot get topology info: %v", err)
-				http.Error(
-					w,
-					"An error has occurred while getting topology info:\n\n"+err.Error(),
-					http.StatusInternalServerError,
-				)
-			}
-		}
+		ti := newTopologyInfo(ctx, client)
 
 		registry := e.makeRegistry(ctx, client, ti, requestOpts)
 
