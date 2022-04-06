@@ -48,7 +48,7 @@
 
 [[projects]]
   branch = "master"
-  name = "github.com/percona/exporter_shared"
+  name = "github.com/shatteredsilicon/exporter_shared"
   packages = [
     ".",
     "helpers"

@@ -18,7 +18,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/percona/exporter_shared/helpers"
+	"github.com/shatteredsilicon/exporter_shared/helpers"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -37,7 +37,7 @@ func TestCollector(t *testing.T) {
 	}
 
 	collector := NewMongodbCollector(&MongodbCollectorOpts{
-		URI: testMongoDBURL(),
+		URI:                      testMongoDBURL(),
 		CollectDatabaseMetrics:   true,
 		CollectCollectionMetrics: true,
 		CollectTopMetrics:        true,

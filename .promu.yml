@@ -1,5 +1,5 @@
 repository:
-  path: github.com/percona/mongodb_exporter
+  path: github.com/shatteredsilicon/mongodb_exporter
 build:
   binaries:
     - name: mongodb_exporter
