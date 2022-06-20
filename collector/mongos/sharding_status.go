@@ -23,7 +23,7 @@ import (
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 
-	"github.com/percona/mongodb_exporter/shared"
+	"github.com/shatteredsilicon/mongodb_exporter/shared"
 )
 
 var (
