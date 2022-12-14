@@ -7,3 +7,5 @@ coverage.txt
 coverage_temp.txt
 /.history
 /.idea
+
+vendor/

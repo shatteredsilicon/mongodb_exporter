@@ -18,6 +18,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"reflect"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -25,6 +27,7 @@ import (
 	"github.com/prometheus/common/log"
 	"github.com/prometheus/common/version"
 	"github.com/shatteredsilicon/exporter_shared"
+	"gopkg.in/ini.v1"
 
 	"github.com/shatteredsilicon/mongodb_exporter/collector"
 	"github.com/shatteredsilicon/mongodb_exporter/shared"
@@ -43,6 +46,7 @@ func defaultMongoDBURL() string {
 
 var (
 	versionF       = flag.Bool("version", false, "Print version information and exit.")
+	configPathF    = flag.String("config", "/opt/ss/ssm-client/mongodb_exporter.conf", "Path of config file")
 	listenAddressF = flag.String("web.listen-address", ":9216", "Address to listen on for web interface and telemetry.")
 	metricsPathF   = flag.String("web.metrics-path", "/metrics", "Path under which to expose metrics.")
 
@@ -64,9 +68,9 @@ var (
 	maxConnectionsF               = flag.Int("mongodb.max-connections", 1, "Max number of pooled connections to the database.")
 	testF                         = flag.Bool("test", false, "Check MongoDB connection, print buildInfo() information and exit.")
 
-	socketTimeoutF = flag.Duration("mongodb.socket-timeout", 3*time.Second, "Amount of time to wait for a non-responding socket to the database before it is forcefully closed.\n"+
+	socketTimeoutF = flag.String("mongodb.socket-timeout", "3s", "Amount of time to wait for a non-responding socket to the database before it is forcefully closed.\n"+
 		"    \tValid time units are 'ns', 'us' (or 'µs'), 'ms', 's', 'm', 'h'.")
-	syncTimeoutF = flag.Duration("mongodb.sync-timeout", time.Minute, "Amount of time an operation with this session will wait before returning an error in case\n"+
+	syncTimeoutF = flag.String("mongodb.sync-timeout", "1m", "Amount of time an operation with this session will wait before returning an error in case\n"+
 		"    \ta connection to a usable server can't be established.\n"+
 		"    \tValid time units are 'ns', 'us' (or 'µs'), 'ms', 's', 'm', 'h'.")
 
@@ -74,6 +78,8 @@ var (
 	// enabledGroupsFlag = flag.String("groups.enabled", "asserts,durability,background_flushing,connections,extra_info,global_lock,index_counters,network,op_counters,op_counters_repl,memory,locks,metrics", "Comma-separated list of groups to use, for more info see: docs.mongodb.org/manual/reference/command/serverStatus/")
 	enabledGroupsFlag = flag.String("groups.enabled", "", "Currently ignored")
 )
+
+var cfg = new(config)
 
 func main() {
 	flag.Usage = func() {
@@ -89,15 +95,32 @@ func main() {
 		uriF = &uri
 	}
 
-	if *testF {
+	err := ini.MapTo(cfg, *configPathF)
+	if err != nil {
+		log.Fatal(fmt.Sprintf("Load config file %s failed: %s", *configPathF, err.Error()))
+	}
+
+	// set flags for exporter_shared server
+	flag.Set("web.ssl-cert-file", lookupConfig("web.ssl-cert-file", "").(string))
+	flag.Set("web.ssl-key-file", lookupConfig("web.ssl-key-file", "").(string))
+
+	if uri == "" {
+		uri = lookupConfig("mongodb.uri", *uriF).(string)
+	}
+	tls := lookupConfig("mongodb.tls", *tlsF).(bool)
+	tlsCert := lookupConfig("mongodb.tls-cert", *tlsCertF).(string)
+	tlsPrivateKey := lookupConfig("mongodb.tls-private-key", *tlsPrivateKeyF).(string)
+	tlsCA := lookupConfig("mongodb.tls-ca", *tlsCAF).(string)
+	tlsDisableHostnameValidation := lookupConfig("mongodb.disable-hostname-validation", *tlsDisableHostnameValidationF).(bool)
+	if lookupConfig("test", *testF).(bool) {
 		buildInfo, err := shared.TestConnection(
 			shared.MongoSessionOpts{
-				URI:                   *uriF,
-				TLSConnection:         *tlsF,
-				TLSCertificateFile:    *tlsCertF,
-				TLSPrivateKeyFile:     *tlsPrivateKeyF,
-				TLSCaFile:             *tlsCAF,
-				TLSHostnameValidation: !(*tlsDisableHostnameValidationF),
+				URI:                   uri,
+				TLSConnection:         tls,
+				TLSCertificateFile:    tlsCert,
+				TLSPrivateKeyFile:     tlsPrivateKey,
+				TLSCaFile:             tlsCA,
+				TLSHostnameValidation: !tlsDisableHostnameValidation,
 			},
 		)
 		if err != nil {
@@ -112,22 +135,137 @@ func main() {
 		os.Exit(0)
 	}
 
+	socketTimeout, _ := time.ParseDuration(lookupConfig("mongodb.socket-timeout", *socketTimeoutF).(string))
+	syncTimeout, _ := time.ParseDuration(lookupConfig("mongodb.sync-timeout", *syncTimeoutF).(string))
 	mongodbCollector := collector.NewMongodbCollector(&collector.MongodbCollectorOpts{
-		URI:                      *uriF,
-		TLSConnection:            *tlsF,
-		TLSCertificateFile:       *tlsCertF,
-		TLSPrivateKeyFile:        *tlsPrivateKeyF,
-		TLSCaFile:                *tlsCAF,
-		TLSHostnameValidation:    !(*tlsDisableHostnameValidationF),
-		DBPoolLimit:              *maxConnectionsF,
-		CollectDatabaseMetrics:   *collectDatabaseF,
-		CollectCollectionMetrics: *collectCollectionF,
-		CollectTopMetrics:        *collectTopF,
-		CollectIndexUsageStats:   *collectIndexUsageF,
-		SocketTimeout:            *socketTimeoutF,
-		SyncTimeout:              *syncTimeoutF,
+		URI:                      uri,
+		TLSConnection:            tls,
+		TLSCertificateFile:       tlsCert,
+		TLSPrivateKeyFile:        tlsPrivateKey,
+		TLSCaFile:                tlsCA,
+		TLSHostnameValidation:    !tlsDisableHostnameValidation,
+		DBPoolLimit:              lookupConfig("mongodb.max-connections", *maxConnectionsF).(int),
+		CollectDatabaseMetrics:   lookupConfig("collect.database", *collectDatabaseF).(bool),
+		CollectCollectionMetrics: lookupConfig("collect.collection", *collectCollectionF).(bool),
+		CollectTopMetrics:        lookupConfig("collect.topmetrics", *collectTopF).(bool),
+		CollectIndexUsageStats:   lookupConfig("collect.indexusage", *collectIndexUsageF).(bool),
+		SocketTimeout:            socketTimeout,
+		SyncTimeout:              syncTimeout,
 	})
 	prometheus.MustRegister(mongodbCollector)
 
-	exporter_shared.RunServer("MongoDB", *listenAddressF, *metricsPathF, promhttp.ContinueOnError)
+	exporter_shared.RunServer("MongoDB", lookupConfig("web.listen-address", *listenAddressF).(string), lookupConfig("web.metrics-path", *metricsPathF).(string), promhttp.ContinueOnError)
+}
+
+type config struct {
+	Test    bool          `ini:"test"`
+	Web     webConfig     `ini:"web"`
+	Collect collectConfig `ini:"collect"`
+	Mongodb mongodbConfig `ini:"mongodb"`
+	Groups  groupsConfig  `ini:"groups"`
+}
+
+type webConfig struct {
+	ListenAddress string `ini:"listen-address"`
+	MetricsPath   string `ini:"metrics-path"`
+	SSLCertFile   string `ini:"ssl-cert-file"`
+	SSLKeyFile    string `ini:"ssl-key-file"`
+}
+
+type collectConfig struct {
+	Database   bool `ini:"database"`
+	Collection bool `ini:"collection"`
+	TopMetrics bool `ini:"topmetrics"`
+	IndexUsage bool `ini:"indexusage"`
+}
+
+type groupsConfig struct {
+	Enabled string `ini:"enabled"`
+}
+
+type mongodbConfig struct {
+	URL                       string `ini:"uri"`
+	TLS                       bool   `ini:"tls"`
+	TLSCert                   string `ini:"tls-cert"`
+	TLSPrivateKey             string `ini:"tls-private-key"`
+	TLSCA                     string `ini:"tls-ca"`
+	DisableHostnameValidation bool   `ini:"disable-hostname-validation"`
+	MaxConnections            int    `ini:"max-connections"`
+	Test                      bool   `ini:"test"`
+	SocketTimeout             string `ini:"socket-timeout"`
+	SyncTimeout               string `ini:"sync-timeout"`
+}
+
+// lookupConfig lookup config from flag
+// or config by name, returns nil if none exists.
+// name should be in this format -> '[section].[key]'
+func lookupConfig(name string, defaultValue interface{}) interface{} {
+	var flagSet bool
+	var flagValue interface{}
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			flagSet = true
+			switch reflect.Indirect(reflect.ValueOf(f.Value)).Kind() {
+			case reflect.Bool:
+				flagValue = reflect.Indirect(reflect.ValueOf(f.Value)).Bool()
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				flagValue = reflect.Indirect(reflect.ValueOf(f.Value)).Int()
+			case reflect.Float32, reflect.Float64:
+				flagValue = reflect.Indirect(reflect.ValueOf(f.Value)).Float()
+			case reflect.String:
+				flagValue = reflect.Indirect(reflect.ValueOf(f.Value)).String()
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+				flagValue = reflect.Indirect(reflect.ValueOf(f.Value)).Uint()
+			}
+		}
+	})
+	if flagSet {
+		return flagValue
+	}
+
+	section := ""
+	key := name
+	if i := strings.Index(name, "."); i > 0 {
+		section = name[0:i]
+		if len(name) > i+1 {
+			key = name[i+1:]
+		} else {
+			key = ""
+		}
+	}
+
+	t := reflect.TypeOf(*cfg)
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		iniName := field.Tag.Get("ini")
+		matched := iniName == section
+		if section == "" {
+			matched = iniName == key
+		}
+		if !matched {
+			continue
+		}
+
+		v := reflect.ValueOf(cfg).Elem().Field(i)
+		if section == "" {
+			return v.Interface()
+		}
+
+		if !v.CanAddr() {
+			continue
+		}
+
+		st := reflect.TypeOf(v.Interface())
+		for j := 0; j < st.NumField(); j++ {
+			sectionField := st.Field(j)
+			sectionININame := sectionField.Tag.Get("ini")
+			if sectionININame != key {
+				continue
+			}
+
+			return v.Addr().Elem().Field(j).Interface()
+		}
+	}
+
+	return defaultValue
 }
