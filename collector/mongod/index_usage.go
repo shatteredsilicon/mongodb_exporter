@@ -49,7 +49,7 @@ func (indexStats *IndexStatsList) Describe(ch chan<- *prometheus.Desc) {
 // GetIndexUsageStatList returns stats for a given collection in a database
 func GetIndexUsageStatList(session *mgo.Session) *IndexStatsList {
 	indexUsageStatsList := &IndexStatsList{}
-	log.Info("collecting index stats")
+	log.Debug("collecting index stats")
 	databaseNames, err := session.DatabaseNames()
 	if err != nil {
 		log.Error("Failed to get database names")
