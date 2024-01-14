@@ -15,10 +15,13 @@
 package mongod
 
 import (
+	"context"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/log"
-	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/bson"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/shatteredsilicon/mongodb_exporter/shared"
 )
@@ -69,31 +72,35 @@ type OplogStatus struct {
 }
 
 // there's gotta be a better way to do this, but it works for now :/
-func BsonMongoTimestampToUnix(timestamp bson.MongoTimestamp) float64 {
+func BsonMongoTimestampToUnix(timestamp int64) float64 {
 	return float64(timestamp >> 32)
 }
 
-func getOplogTailOrHeadTimestamp(session *mgo.Session, returnHead bool) (float64, error) {
+func getOplogTailOrHeadTimestamp(ctx context.Context, client *mongo.Client, returnHead bool) (float64, error) {
 	var result struct {
-		Timestamp bson.MongoTimestamp `bson:"ts"`
+		Timestamp int64 `bson:"ts"`
 	}
 
-	var sortCond string = "$natural"
+	sortOrder := 1
 	if returnHead {
-		sortCond = "-$natural"
+		sortOrder = -1
 	}
 
-	findQuery := session.DB(oplogDb).C(oplogCollection).Find(nil).Sort(sortCond).Limit(1)
-	err := shared.AddCodeCommentToQuery(findQuery).One(&result)
+	cur, err := client.Database(oplogDb).Collection(oplogCollection).Find(ctx, bson.D{}, options.Find().SetSort(bson.D{{"natural", sortOrder}}).SetLimit(1))
+	if err != nil {
+		return 0, err
+	}
+
+	err = shared.AddCodeCommentToQuery(cur).Decode(&result)
 	return BsonMongoTimestampToUnix(result.Timestamp), err
 }
 
-func GetOplogTimestamps(session *mgo.Session) (*OplogTimestamps, error) {
-	headTs, err := getOplogTailOrHeadTimestamp(session, true)
+func GetOplogTimestamps(ctx context.Context, client *mongo.Client) (*OplogTimestamps, error) {
+	headTs, err := getOplogTailOrHeadTimestamp(ctx, client, true)
 	if err != nil {
 		return nil, err
 	}
-	tailTs, err := getOplogTailOrHeadTimestamp(session, false)
+	tailTs, err := getOplogTailOrHeadTimestamp(ctx, client, false)
 	if err != nil {
 		return nil, err
 	}
@@ -104,9 +111,9 @@ func GetOplogTimestamps(session *mgo.Session) (*OplogTimestamps, error) {
 	return oplogTimestamps, err
 }
 
-func GetOplogCollectionStats(session *mgo.Session) (*OplogCollectionStats, error) {
+func GetOplogCollectionStats(ctx context.Context, client *mongo.Client) (*OplogCollectionStats, error) {
 	results := &OplogCollectionStats{}
-	err := session.DB("local").Run(bson.M{"collStats": "oplog.rs"}, &results)
+	err := client.Database("local").RunCommand(ctx, bson.D{{"collStats", "oplog.rs"}}).Decode(&results)
 	return results, err
 }
 
@@ -136,9 +143,14 @@ func (status *OplogStatus) Describe(ch chan<- *prometheus.Desc) {
 	oplogStatusSizeBytes.Describe(ch)
 }
 
-func GetOplogStatus(session *mgo.Session) *OplogStatus {
-	collectionStats, err := GetOplogCollectionStats(session)
-	oplogTimestamps, err := GetOplogTimestamps(session)
+func GetOplogStatus(ctx context.Context, client *mongo.Client) *OplogStatus {
+	collectionStats, err := GetOplogCollectionStats(ctx, client)
+	if err != nil {
+		log.Errorf("Failed to get collection status: %s", err)
+		return nil
+	}
+
+	oplogTimestamps, err := GetOplogTimestamps(ctx, client)
 	if err != nil {
 		log.Errorf("Failed to get oplog status: %s", err)
 		return nil

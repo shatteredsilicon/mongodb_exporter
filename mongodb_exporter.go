@@ -15,8 +15,11 @@
 package main
 
 import (
+	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"reflect"
 	"strconv"
@@ -28,6 +31,7 @@ import (
 	"github.com/prometheus/common/log"
 	"github.com/prometheus/common/version"
 	"github.com/shatteredsilicon/exporter_shared"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"gopkg.in/ini.v1"
 
 	"github.com/shatteredsilicon/mongodb_exporter/collector"
@@ -117,21 +121,55 @@ func main() {
 	if uri == "" {
 		uri = lookupConfig("mongodb.uri", *uriF).(string)
 	}
-	tls := lookupConfig("mongodb.tls", *tlsF).(bool)
+
+	tlsEnabled := lookupConfig("mongodb.tls", *tlsF).(bool)
 	tlsCert := lookupConfig("mongodb.tls-cert", *tlsCertF).(string)
 	tlsPrivateKey := lookupConfig("mongodb.tls-private-key", *tlsPrivateKeyF).(string)
 	tlsCA := lookupConfig("mongodb.tls-ca", *tlsCAF).(string)
 	tlsDisableHostnameValidation := lookupConfig("mongodb.disable-hostname-validation", *tlsDisableHostnameValidationF).(bool)
+
+	// uri must has scheme
+	u, err := url.Parse(uri)
+	if err != nil || u == nil || u.Scheme == "" {
+		// assume it's invalid because it doesn't have schema,
+		// add default schema 'mongodb://' and try it again
+		tmpURI := "mongodb://" + uri
+		u, err = url.Parse(tmpURI)
+		if err == nil && u != nil && u.Scheme != "" {
+			uri = tmpURI
+		}
+	}
+
 	if lookupConfig("test", *testF).(bool) {
+		serverAPI := options.ServerAPI(options.ServerAPIVersion1)
+		clientOpts := options.Client().ApplyURI(uri)
+
+		if tlsEnabled {
+			tlsConfig := tls.Config{
+				InsecureSkipVerify: tlsDisableHostnameValidation,
+			}
+			if len(tlsCA) > 0 {
+				ca, err := shared.LoadCaFrom(tlsCA)
+				if err != nil {
+					log.Fatalf("Couldn't load client CAs from %s. Got: %s", tlsCA, err)
+				}
+				tlsConfig.RootCAs = ca
+			}
+			if len(tlsCert) > 0 {
+				certificates, err := shared.LoadKeyPairFrom(tlsCert, tlsPrivateKey)
+				if err != nil {
+					log.Fatalf("Cannot load key pair from '%s' and '%s' to connect to server '%s'. Got: %v", tlsCert, tlsPrivateKey, uri, err)
+				}
+				tlsConfig.Certificates = []tls.Certificate{certificates}
+			}
+
+			clientOpts.SetTLSConfig(&tlsConfig)
+		}
+		clientOpts.SetServerAPIOptions(serverAPI)
+
 		buildInfo, err := shared.TestConnection(
-			shared.MongoSessionOpts{
-				URI:                   uri,
-				TLSConnection:         tls,
-				TLSCertificateFile:    tlsCert,
-				TLSPrivateKeyFile:     tlsPrivateKey,
-				TLSCaFile:             tlsCA,
-				TLSHostnameValidation: !tlsDisableHostnameValidation,
-			},
+			context.Background(),
+			clientOpts,
 		)
 		if err != nil {
 			log.Errorf("Can't connect to MongoDB: %s", err)
@@ -149,7 +187,7 @@ func main() {
 	syncTimeout, _ := time.ParseDuration(lookupConfig("mongodb.sync-timeout", *syncTimeoutF).(string))
 	mongodbCollector := collector.NewMongodbCollector(&collector.MongodbCollectorOpts{
 		URI:                      uri,
-		TLSConnection:            tls,
+		TLSConnection:            tlsEnabled,
 		TLSCertificateFile:       tlsCert,
 		TLSPrivateKeyFile:        tlsPrivateKey,
 		TLSCaFile:                tlsCA,

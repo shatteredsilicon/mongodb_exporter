@@ -15,10 +15,12 @@
 package shared
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 func TestRedactMongoUri(t *testing.T) {
@@ -30,24 +32,21 @@ func TestRedactMongoUri(t *testing.T) {
 	}
 }
 
-func TestMongoSession(t *testing.T) {
-	mso := &MongoSessionOpts{}
-	session := MongoSession(mso)
-	require.NotNil(t, session)
-	if session == nil {
-		t.Error("session is nil")
-	}
-	serverVersion, err := MongoSessionServerVersion(session)
+func TestMongoClient(t *testing.T) {
+	client, err := MongoClient(context.Background(), &options.ClientOptions{})
+	require.Nil(t, err)
+	require.NotNil(t, client)
+
+	serverVersion, err := MongoClientServerVersion(context.Background(), client)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, serverVersion)
 
-	nodeType, err := MongoSessionNodeType(session)
+	nodeType, err := MongoClientNodeType(context.Background(), client)
 	assert.NoError(t, err)
 	assert.Equal(t, "mongod", nodeType)
 }
 
 func TestTestConnection(t *testing.T) {
-	mso := MongoSessionOpts{}
-	_, err := TestConnection(mso)
+	_, err := TestConnection(context.Background(), &options.ClientOptions{})
 	require.NoError(t, err)
 }

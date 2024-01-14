@@ -15,13 +15,15 @@
 package collector
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/log"
-	"gopkg.in/mgo.v2"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/shatteredsilicon/mongodb_exporter/collector/mongod"
 	"github.com/shatteredsilicon/mongodb_exporter/collector/mongos"
@@ -47,18 +49,9 @@ type MongodbCollectorOpts struct {
 	SyncTimeout              time.Duration
 }
 
-func (in *MongodbCollectorOpts) toSessionOps() *shared.MongoSessionOpts {
-	return &shared.MongoSessionOpts{
-		URI:                   in.URI,
-		TLSConnection:         in.TLSConnection,
-		TLSCertificateFile:    in.TLSCertificateFile,
-		TLSPrivateKeyFile:     in.TLSPrivateKeyFile,
-		TLSCaFile:             in.TLSCaFile,
-		TLSHostnameValidation: in.TLSHostnameValidation,
-		PoolLimit:             in.DBPoolLimit,
-		SocketTimeout:         in.SocketTimeout,
-		SyncTimeout:           in.SyncTimeout,
-	}
+func (in *MongodbCollectorOpts) toMongoClientOps() *options.ClientOptions {
+	serverAPI := options.ServerAPI(options.ServerAPIVersion1)
+	return options.Client().ApplyURI(in.URI).SetServerAPIOptions(serverAPI)
 }
 
 // MongodbCollector is in charge of collecting mongodb's metrics.
@@ -71,8 +64,8 @@ type MongodbCollector struct {
 	lastScrapeDurationSeconds prometheus.Gauge
 	mongoUp                   prometheus.Gauge
 
-	mongoSessLock sync.Mutex
-	mongoSess     *mgo.Session
+	mongoClientLock sync.Mutex
+	mongoClient     *mongo.Client
 }
 
 // NewMongodbCollector returns a new instance of a MongodbCollector.
@@ -114,29 +107,30 @@ func NewMongodbCollector(opts *MongodbCollectorOpts) *MongodbCollector {
 	return exporter
 }
 
-// getSession returns the cached *mgo.Session or creates a new session and returns it.
+// getMongoClient returns the cached *mongo.Client or creates a new client and returns it.
 // Use sync.Mutex to avoid race condition around session creation.
-func (exporter *MongodbCollector) getSession() *mgo.Session {
-	exporter.mongoSessLock.Lock()
-	defer exporter.mongoSessLock.Unlock()
+func (exporter *MongodbCollector) getMongoClient() (*mongo.Client, error) {
+	exporter.mongoClientLock.Lock()
+	defer exporter.mongoClientLock.Unlock()
 
-	if exporter.mongoSess == nil {
-		exporter.mongoSess = shared.MongoSession(exporter.Opts.toSessionOps())
+	var err error
+	if exporter.mongoClient == nil {
+		exporter.mongoClient, err = shared.MongoClient(context.TODO(), exporter.Opts.toMongoClientOps())
 	}
-	if exporter.mongoSess == nil {
-		return nil
-	}
-	return exporter.mongoSess.Copy()
+
+	return exporter.mongoClient, err
 }
 
 // Close cleanly closes the mongo session if it exists.
-func (exporter *MongodbCollector) Close() {
-	exporter.mongoSessLock.Lock()
-	defer exporter.mongoSessLock.Unlock()
+func (exporter *MongodbCollector) Close() error {
+	exporter.mongoClientLock.Lock()
+	defer exporter.mongoClientLock.Unlock()
 
-	if exporter.mongoSess != nil {
-		exporter.mongoSess.Close()
+	if exporter.mongoClient != nil {
+		return exporter.mongoClient.Disconnect(context.Background())
 	}
+
+	return nil
 }
 
 // Describe sends the super-set of all possible descriptors of metrics collected by this Collector
@@ -194,17 +188,16 @@ func (exporter *MongodbCollector) scrape(ch chan<- prometheus.Metric) {
 		}
 	}(time.Now())
 
-	mongoSess := exporter.getSession()
-	if mongoSess == nil {
-		err = fmt.Errorf("Can't create mongo session to %s", shared.RedactMongoUri(exporter.Opts.URI))
+	mongoClient, err := exporter.getMongoClient()
+	if err != nil || mongoClient == nil {
+		err = fmt.Errorf("Can't create mongo client to %s", shared.RedactMongoUri(exporter.Opts.URI))
 		log.Error(err)
 		exporter.mongoUp.Set(0)
 		return
 	}
-	defer mongoSess.Close()
 
 	var serverVersion string
-	serverVersion, err = shared.MongoSessionServerVersion(mongoSess)
+	serverVersion, err = shared.MongoClientServerVersion(context.Background(), mongoClient)
 	if err != nil {
 		log.Errorf("Problem gathering the mongo server version: %s", err)
 		exporter.mongoUp.Set(0)
@@ -213,7 +206,7 @@ func (exporter *MongodbCollector) scrape(ch chan<- prometheus.Metric) {
 	exporter.mongoUp.Set(1)
 
 	var nodeType string
-	nodeType, err = shared.MongoSessionNodeType(mongoSess)
+	nodeType, err = shared.MongoClientNodeType(context.Background(), mongoClient)
 	if err != nil {
 		log.Errorf("Problem gathering the mongo node type: %s", err)
 		return
@@ -222,36 +215,33 @@ func (exporter *MongodbCollector) scrape(ch chan<- prometheus.Metric) {
 	log.Debugf("Connected to: %s (node type: %s, server version: %s)", shared.RedactMongoUri(exporter.Opts.URI), nodeType, serverVersion)
 	switch {
 	case nodeType == "mongos":
-		exporter.collectMongos(mongoSess, ch)
+		exporter.collectMongos(context.Background(), mongoClient, ch)
 	case nodeType == "mongod":
-		exporter.collectMongod(mongoSess, ch)
+		exporter.collectMongod(context.Background(), mongoClient, ch)
 	case nodeType == "replset":
-		exporter.collectMongodReplSet(mongoSess, ch)
+		exporter.collectMongodReplSet(context.Background(), mongoClient, ch)
 	default:
 		err = fmt.Errorf("Unrecognized node type %s", nodeType)
 		log.Error(err)
 	}
 }
 
-func (exporter *MongodbCollector) collectMongos(session *mgo.Session, ch chan<- prometheus.Metric) {
-	// read from primaries only when using mongos to avoid SERVER-27864
-	session.SetMode(mgo.Strong, true)
-
+func (exporter *MongodbCollector) collectMongos(ctx context.Context, client *mongo.Client, ch chan<- prometheus.Metric) {
 	log.Debug("Collecting Server Status")
-	serverStatus := mongos.GetServerStatus(session)
+	serverStatus := mongos.GetServerStatus(ctx, client)
 	if serverStatus != nil {
 		serverStatus.Export(ch)
 	}
 
 	log.Debug("Collecting Sharding Status")
-	shardingStatus := mongos.GetShardingStatus(session)
+	shardingStatus := mongos.GetShardingStatus(ctx, client)
 	if shardingStatus != nil {
 		shardingStatus.Export(ch)
 	}
 
 	if exporter.Opts.CollectDatabaseMetrics {
 		log.Debug("Collecting Database Status From Mongos")
-		dbStatList := mongos.GetDatabaseStatList(session)
+		dbStatList := mongos.GetDatabaseStatList(ctx, client)
 		if dbStatList != nil {
 			dbStatList.Export(ch)
 		}
@@ -259,23 +249,23 @@ func (exporter *MongodbCollector) collectMongos(session *mgo.Session, ch chan<- 
 
 	if exporter.Opts.CollectCollectionMetrics {
 		log.Debug("Collecting Collection Status From Mongos")
-		collStatList := mongos.GetCollectionStatList(session)
+		collStatList := mongos.GetCollectionStatList(ctx, client)
 		if collStatList != nil {
 			collStatList.Export(ch)
 		}
 	}
 }
 
-func (exporter *MongodbCollector) collectMongod(session *mgo.Session, ch chan<- prometheus.Metric) {
+func (exporter *MongodbCollector) collectMongod(ctx context.Context, client *mongo.Client, ch chan<- prometheus.Metric) {
 	log.Debug("Collecting Server Status")
-	serverStatus := mongod.GetServerStatus(session)
+	serverStatus := mongod.GetServerStatus(ctx, client)
 	if serverStatus != nil {
 		serverStatus.Export(ch)
 	}
 
 	if exporter.Opts.CollectDatabaseMetrics {
 		log.Debug("Collecting Database Status From Mongod")
-		dbStatList := mongod.GetDatabaseStatList(session)
+		dbStatList := mongod.GetDatabaseStatList(ctx, client)
 		if dbStatList != nil {
 			dbStatList.Export(ch)
 		}
@@ -283,7 +273,7 @@ func (exporter *MongodbCollector) collectMongod(session *mgo.Session, ch chan<- 
 
 	if exporter.Opts.CollectCollectionMetrics {
 		log.Debug("Collecting Collection Status From Mongod")
-		collStatList := mongod.GetCollectionStatList(session)
+		collStatList := mongod.GetCollectionStatList(ctx, client)
 		if collStatList != nil {
 			collStatList.Export(ch)
 		}
@@ -291,7 +281,7 @@ func (exporter *MongodbCollector) collectMongod(session *mgo.Session, ch chan<- 
 
 	if exporter.Opts.CollectTopMetrics {
 		log.Debug("Collecting Top Metrics")
-		topStatus := mongod.GetTopStatus(session)
+		topStatus := mongod.GetTopStatus(ctx, client)
 		if topStatus != nil {
 			topStatus.Export(ch)
 		}
@@ -299,24 +289,24 @@ func (exporter *MongodbCollector) collectMongod(session *mgo.Session, ch chan<- 
 
 	if exporter.Opts.CollectIndexUsageStats {
 		log.Debug("Collecting Index Statistics")
-		indexStatList := mongod.GetIndexUsageStatList(session)
+		indexStatList := mongod.GetIndexUsageStatList(ctx, client)
 		if indexStatList != nil {
 			indexStatList.Export(ch)
 		}
 	}
 }
 
-func (exporter *MongodbCollector) collectMongodReplSet(session *mgo.Session, ch chan<- prometheus.Metric) {
-	exporter.collectMongod(session, ch)
+func (exporter *MongodbCollector) collectMongodReplSet(ctx context.Context, client *mongo.Client, ch chan<- prometheus.Metric) {
+	exporter.collectMongod(ctx, client, ch)
 
 	log.Debug("Collecting Replset Status")
-	replSetStatus := mongod.GetReplSetStatus(session)
+	replSetStatus := mongod.GetReplSetStatus(ctx, client)
 	if replSetStatus != nil {
 		replSetStatus.Export(ch)
 	}
 
 	log.Debug("Collecting Replset Oplog Status")
-	oplogStatus := mongod.GetOplogStatus(session)
+	oplogStatus := mongod.GetOplogStatus(ctx, client)
 	if oplogStatus != nil {
 		oplogStatus.Export(ch)
 	}
