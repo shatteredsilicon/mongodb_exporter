@@ -15,10 +15,12 @@
 package mongos
 
 import (
+	"context"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/log"
-	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/bson"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/shatteredsilicon/mongodb_exporter/shared"
 )
@@ -65,7 +67,7 @@ var (
 type ShardingTopoShardInfo struct {
 	Shard    string `bson:"_id"`
 	Host     string `bson:"host"`
-	Draining bool   `bson:"draining",omitifempty`
+	Draining bool   `bson:"draining,omitifempty"`
 }
 
 type ShardingTopoChunkInfo struct {
@@ -86,50 +88,65 @@ type ShardingTopoStats struct {
 	ShardChunks      *[]ShardingTopoChunkInfo
 }
 
-func GetShards(session *mgo.Session) *[]ShardingTopoShardInfo {
+func GetShards(ctx context.Context, client *mongo.Client) *[]ShardingTopoShardInfo {
 	var shards []ShardingTopoShardInfo
-	q := session.DB("config").C("shards").Find(bson.M{})
-	if err := shared.AddCodeCommentToQuery(q).All(&shards); err != nil {
+	if cur, err := client.Database("config").Collection("shards").Find(ctx, bson.D{}); err != nil || shared.AddCodeCommentToQuery(cur).All(ctx, &shards) != nil {
 		log.Errorf("Failed to execute find query on 'config.shards': %s.", err)
 	}
+
 	return &shards
 }
 
-func GetTotalChunks(session *mgo.Session) float64 {
-	q := session.DB("config").C("chunks").Find(bson.M{})
-	chunkCount, err := shared.AddCodeCommentToQuery(q).Count()
+func GetTotalChunks(ctx context.Context, client *mongo.Client) float64 {
+	cur, err := client.Database("config").Collection("chunks").Find(ctx, bson.D{})
 	if err != nil {
 		log.Errorf("Failed to execute find query on 'config.chunks': %s.", err)
+		return 0
 	}
-	return float64(chunkCount)
+
+	return float64(shared.AddCodeCommentToQuery(cur).RemainingBatchLength())
 }
 
-func GetTotalChunksByShard(session *mgo.Session) *[]ShardingTopoChunkInfo {
+func GetTotalChunksByShard(ctx context.Context, client *mongo.Client) *[]ShardingTopoChunkInfo {
 	var results []ShardingTopoChunkInfo
-	err := session.DB("config").C("chunks").Pipe([]bson.M{{"$group": bson.M{"_id": "$shard", "count": bson.M{"$sum": 1}}}}).All(&results)
-	if err != nil {
+	if cur, err := client.Database("config").Collection("chunks").Aggregate(ctx,
+		mongo.Pipeline{bson.D{
+			{"$group", bson.D{
+				{"_id", "$shard"},
+				{"count", bson.D{{"$sum", 1}}},
+			}},
+		}},
+	); err != nil {
+		log.Errorf("Failed to execute find query on 'config.chunks': %s.", err)
+	} else if err = cur.All(ctx, &results); err != nil {
 		log.Errorf("Failed to execute find query on 'config.chunks': %s.", err)
 	}
+
 	return &results
 }
 
-func GetTotalDatabases(session *mgo.Session) *[]ShardingTopoStatsTotalDatabases {
+func GetTotalDatabases(ctx context.Context, client *mongo.Client) *[]ShardingTopoStatsTotalDatabases {
 	results := []ShardingTopoStatsTotalDatabases{}
-	query := []bson.M{{"$match": bson.M{"_id": bson.M{"$ne": "admin"}}}, {"$group": bson.M{"_id": "$partitioned", "total": bson.M{"$sum": 1}}}}
-	err := session.DB("config").C("databases").Pipe(query).All(&results)
-	if err != nil {
+	if cur, err := client.Database("config").Collection("databases").Aggregate(ctx, mongo.Pipeline{bson.D{
+		{"$match", bson.D{{"_id", bson.D{{"$ne", "admin"}}}}},
+		{"$group", bson.D{{"_id", "$partitioned"}, {"total", bson.D{{"$sum", 1}}}}},
+	}}); err != nil {
+		log.Errorf("Failed to execute find query on 'config.databases': %s.", err)
+	} else if err = cur.All(ctx, &results); err != nil {
 		log.Errorf("Failed to execute find query on 'config.databases': %s.", err)
 	}
+
 	return &results
 }
 
-func GetTotalShardedCollections(session *mgo.Session) float64 {
-	q := session.DB("config").C("collections").Find(bson.M{"dropped": false})
-	collCount, err := shared.AddCodeCommentToQuery(q).Count()
+func GetTotalShardedCollections(ctx context.Context, client *mongo.Client) float64 {
+	cur, err := client.Database("config").Collection("collections").Find(ctx, bson.M{"dropped": false})
 	if err != nil {
 		log.Errorf("Failed to execute find query on 'config.collections': %s.", err)
+		return 0
 	}
-	return float64(collCount)
+
+	return float64(shared.AddCodeCommentToQuery(cur).RemainingBatchLength())
 }
 
 func (status *ShardingTopoStats) Export(ch chan<- prometheus.Metric) {
@@ -186,14 +203,14 @@ func (status *ShardingTopoStats) Describe(ch chan<- *prometheus.Desc) {
 	shardingTopoInfoTotalCollections.Describe(ch)
 }
 
-func GetShardingTopoStatus(session *mgo.Session) *ShardingTopoStats {
+func GetShardingTopoStatus(ctx context.Context, client *mongo.Client) *ShardingTopoStats {
 	results := &ShardingTopoStats{}
 
-	results.Shards = GetShards(session)
-	results.TotalChunks = GetTotalChunks(session)
-	results.ShardChunks = GetTotalChunksByShard(session)
-	results.TotalDatabases = GetTotalDatabases(session)
-	results.TotalCollections = GetTotalShardedCollections(session)
+	results.Shards = GetShards(ctx, client)
+	results.TotalChunks = GetTotalChunks(ctx, client)
+	results.ShardChunks = GetTotalChunksByShard(ctx, client)
+	results.TotalDatabases = GetTotalDatabases(ctx, client)
+	results.TotalCollections = GetTotalShardedCollections(ctx, client)
 
 	return results
 }

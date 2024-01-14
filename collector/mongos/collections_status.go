@@ -1,10 +1,12 @@
 package mongos
 
 import (
+	"context"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/log"
-	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/bson"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 var (
@@ -96,22 +98,22 @@ func (collStatList *CollectionStatList) Describe(ch chan<- *prometheus.Desc) {
 }
 
 // GetDatabaseStatus returns stats for a given database
-func GetCollectionStatList(session *mgo.Session) *CollectionStatList {
+func GetCollectionStatList(ctx context.Context, client *mongo.Client) *CollectionStatList {
 	collectionStatList := &CollectionStatList{}
-	database_names, err := session.DatabaseNames()
+	database_names, err := client.ListDatabaseNames(ctx, bson.D{})
 	if err != nil {
 		log.Error("Failed to get database names")
 		return nil
 	}
 	for _, db := range database_names {
-		collection_names, err := session.DB(db).CollectionNames()
+		collection_names, err := client.Database(db).ListCollectionNames(ctx, bson.D{})
 		if err != nil {
 			log.Error("Failed to get collection names for db=" + db)
 			return nil
 		}
 		for _, collection_name := range collection_names {
 			collStatus := CollectionStatus{}
-			err := session.DB(db).Run(bson.D{{"collStats", collection_name}, {"scale", 1}}, &collStatus)
+			err := client.Database(db).RunCommand(ctx, bson.D{{"collStats", collection_name}, {"scale", 1}}).Decode(&collStatus)
 			collStatus.Database = db
 			collStatus.Name = collection_name
 			if err != nil {

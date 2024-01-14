@@ -23,8 +23,8 @@ import (
 	"time"
 
 	"github.com/andreyvit/diff"
+	"github.com/shatteredsilicon/mongodb_exporter/shared"
 	"github.com/stretchr/testify/assert"
-	"gopkg.in/mgo.v2"
 )
 
 var Update = flag.Bool("update", false, "update .golden files")
@@ -277,13 +277,13 @@ func testFlagTest(t *testing.T, data bin) {
 		t.Log(string(b))
 		t.Fatal(err)
 	}
-	buildInfo := mgo.BuildInfo{}
-	err = json.Unmarshal(b, &buildInfo)
+	info := shared.BuildInfo{}
+	err = json.Unmarshal(b, &info)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if reflect.DeepEqual(buildInfo, mgo.BuildInfo{}) {
+	if reflect.DeepEqual(info, shared.BuildInfo{}) {
 		t.Fatalf("buildInfo is empty")
 	}
 }
@@ -306,13 +306,13 @@ func testFlagTestWithTLS(t *testing.T, data bin) {
 		t.Log(string(b))
 		t.Fatal(err)
 	}
-	buildInfo := mgo.BuildInfo{}
-	err = json.Unmarshal(b, &buildInfo)
+	info := shared.BuildInfo{}
+	err = json.Unmarshal(b, &info)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if reflect.DeepEqual(buildInfo, mgo.BuildInfo{}) {
+	if reflect.DeepEqual(info, shared.BuildInfo{}) {
 		t.Fatalf("buildInfo is empty")
 	}
 }
