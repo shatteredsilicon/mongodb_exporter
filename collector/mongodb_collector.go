@@ -24,6 +24,7 @@ import (
 	"github.com/prometheus/common/log"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 
 	"github.com/shatteredsilicon/mongodb_exporter/collector/mongod"
 	"github.com/shatteredsilicon/mongodb_exporter/collector/mongos"
@@ -51,7 +52,11 @@ type MongodbCollectorOpts struct {
 
 func (in *MongodbCollectorOpts) toMongoClientOps() *options.ClientOptions {
 	serverAPI := options.ServerAPI(options.ServerAPIVersion1)
-	return options.Client().ApplyURI(in.URI).SetServerAPIOptions(serverAPI)
+	return options.Client().ApplyURI(in.URI).SetServerAPIOptions(serverAPI).
+		SetSocketTimeout(in.SocketTimeout).
+		SetTimeout(in.SyncTimeout).
+		SetMaxPoolSize(uint64(in.DBPoolLimit)).
+		SetReadPreference(readpref.Nearest())
 }
 
 // MongodbCollector is in charge of collecting mongodb's metrics.
@@ -161,11 +166,14 @@ func (exporter *MongodbCollector) Describe(ch chan<- *prometheus.Desc) {
 	exporter.Collect(metricCh)
 	close(metricCh)
 	<-doneCh
+
+	log.Debug("Returned from Describe")
 }
 
 // Collect is called by the Prometheus registry when collecting metrics.
 // Part of prometheus.Collector interface.
 func (exporter *MongodbCollector) Collect(ch chan<- prometheus.Metric) {
+	log.Debug("Collecting metrics")
 	exporter.scrape(ch)
 
 	exporter.scrapesTotal.Collect(ch)
@@ -173,6 +181,8 @@ func (exporter *MongodbCollector) Collect(ch chan<- prometheus.Metric) {
 	exporter.lastScrapeError.Collect(ch)
 	exporter.lastScrapeDurationSeconds.Collect(ch)
 	exporter.mongoUp.Collect(ch)
+
+	log.Debug("Returned from collecting metrics")
 }
 
 func (exporter *MongodbCollector) scrape(ch chan<- prometheus.Metric) {

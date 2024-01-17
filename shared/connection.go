@@ -100,6 +100,7 @@ func TestConnection(ctx context.Context, opts *options.ClientOptions) ([]byte, e
 	if err != nil || client == nil {
 		return nil, fmt.Errorf("cannot connect using uri '%s': %s", opts.GetURI(), err.Error())
 	}
+	defer client.Disconnect(ctx)
 
 	buildInfo, err := getBuildInfo(ctx, client)
 	if err != nil {

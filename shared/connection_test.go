@@ -36,6 +36,7 @@ func TestMongoClient(t *testing.T) {
 	client, err := MongoClient(context.Background(), &options.ClientOptions{})
 	require.Nil(t, err)
 	require.NotNil(t, client)
+	defer client.Disconnect(context.Background())
 
 	serverVersion, err := MongoClientServerVersion(context.Background(), client)
 	assert.NoError(t, err)
