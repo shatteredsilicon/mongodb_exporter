@@ -54,23 +54,23 @@ func GetIndexUsageStatList(ctx context.Context, client *mongo.Client) *IndexStat
 	log.Debug("collecting index stats")
 	databaseNames, err := client.ListDatabaseNames(ctx, bson.D{})
 	if err != nil {
-		log.Error("Failed to get database names")
+		log.Errorf("Failed to get database names: %s", err)
 		return nil
 	}
 	for _, db := range databaseNames {
 		collectionNames, err := client.Database(db).ListCollectionNames(ctx, bson.D{})
 		if err != nil {
-			log.Error("Failed to get collection names for db=" + db)
+			log.Errorf("Failed to get collection names for db=%s: %s", db, err)
 			return nil
 		}
 		for _, collectionName := range collectionNames {
 
 			collIndexUsageStats := IndexStatsList{}
 			if cur, err := client.Database(db).Collection(collectionName).Aggregate(ctx, mongo.Pipeline{bson.D{{"$indexStats", bson.M{}}}}); err != nil {
-				log.Error("Failed to collect index stats for coll=" + collectionName)
+				log.Errorf("Failed to collect index stats for coll=%s: %s", collectionName, err)
 				return nil
 			} else if cur.All(ctx, &collIndexUsageStats.Items); err != nil {
-				log.Error("Failed to collect index stats for coll=" + collectionName)
+				log.Errorf("Failed to collect index stats for coll=%s: %s", collectionName, err)
 				return nil
 			}
 			// Label index stats with corresponding db.collection

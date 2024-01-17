@@ -95,6 +95,10 @@ func main() {
 	}
 	flag.Parse()
 
+	if os.Getenv("DEBUG") == "1" {
+		log.Base().SetLevel("debug")
+	}
+
 	if os.Getenv("ON_CONFIGURE") == "1" {
 		err := configure()
 		if err != nil {
@@ -200,6 +204,7 @@ func main() {
 		SocketTimeout:            socketTimeout,
 		SyncTimeout:              syncTimeout,
 	})
+	defer mongodbCollector.Close()
 	prometheus.MustRegister(mongodbCollector)
 
 	exporter_shared.RunServer("MongoDB", lookupConfig("web.listen-address", *listenAddressF).(string), lookupConfig("web.metrics-path", *metricsPathF).(string), promhttp.ContinueOnError)
