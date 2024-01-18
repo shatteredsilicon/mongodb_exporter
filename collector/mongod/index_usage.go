@@ -58,24 +58,32 @@ func GetIndexUsageStatList(ctx context.Context, client *mongo.Client) *IndexStat
 		return nil
 	}
 	for _, db := range databaseNames {
-		collectionNames, err := client.Database(db).ListCollectionNames(ctx, bson.D{})
+		collectionSpecs, err := client.Database(db).ListCollectionSpecifications(ctx, bson.D{})
 		if err != nil {
 			log.Errorf("Failed to get collection names for db=%s: %s", db, err)
 			return nil
 		}
-		for _, collectionName := range collectionNames {
+		for _, spec := range collectionSpecs {
+			if spec.Type == "view" {
+				// Don't run $indexStats on a view since that will encounter a
+				// '$indexStats is only valid as the first stage in a pipeline'
+				// error with current mongodb go driver. And since view is based on
+				// a collection and we gather $indexStats from all collections,
+				// so it's OK to ignore a view
+				continue
+			}
 
 			collIndexUsageStats := IndexStatsList{}
-			if cur, err := client.Database(db).Collection(collectionName).Aggregate(ctx, mongo.Pipeline{bson.D{{"$indexStats", bson.M{}}}}); err != nil {
-				log.Errorf("Failed to collect index stats for coll=%s: %s", collectionName, err)
+			if cur, err := client.Database(db).Collection(spec.Name).Aggregate(ctx, mongo.Pipeline{bson.D{{"$indexStats", bson.M{}}}}); err != nil {
+				log.Errorf("Failed to collect index stats for coll=%s: %s", spec.Name, err)
 				return nil
 			} else if cur.All(ctx, &collIndexUsageStats.Items); err != nil {
-				log.Errorf("Failed to collect index stats for coll=%s: %s", collectionName, err)
+				log.Errorf("Failed to collect index stats for coll=%s: %s", spec.Name, err)
 				return nil
 			}
 			// Label index stats with corresponding db.collection
 			for _, stat := range collIndexUsageStats.Items {
-				stat.Collection = db + "." + collectionName
+				stat.Collection = db + "." + spec.Name
 			}
 			indexUsageStatsList.Items = append(indexUsageStatsList.Items, collIndexUsageStats.Items...)
 		}

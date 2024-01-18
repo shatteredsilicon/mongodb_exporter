@@ -30,7 +30,7 @@ func (status *TopStatus) Export(ch chan<- prometheus.Metric) {
 func GetTopStatus(ctx context.Context, client *mongo.Client) *TopStatus {
 	topStatus, err := GetTopStats(ctx, client)
 	if err != nil {
-		log.Debug("Failed to get top status.")
+		log.Debugf("Failed to get top status: %s", err)
 		return nil
 	}
 

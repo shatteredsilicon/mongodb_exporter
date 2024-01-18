@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 var (
@@ -23,6 +24,26 @@ var (
 
 // TopStatsMap is a map of top stats.
 type TopStatsMap map[string]TopStats
+
+func (tsm *TopStatsMap) UnmarshalBSON(data []byte) error {
+	*tsm = TopStatsMap{}
+
+	elems, err := bson.Raw(data).Elements()
+	if err != nil {
+		return err
+	}
+
+	for _, elem := range elems {
+		var ts TopStats
+		if err := bson.Unmarshal(elem.Value().Value, &ts); err != nil {
+			continue
+		}
+
+		(*tsm)[elem.Key()] = ts
+	}
+
+	return nil
+}
 
 // TopCounterStats represents top counter stats.
 type TopCounterStats struct {

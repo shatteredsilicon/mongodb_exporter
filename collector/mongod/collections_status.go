@@ -121,18 +121,23 @@ func GetCollectionStatList(ctx context.Context, client *mongo.Client) *Collectio
 		return nil
 	}
 	for _, db := range database_names {
-		collection_names, err := client.Database(db).ListCollectionNames(ctx, bson.D{})
+		collectionSpecs, err := client.Database(db).ListCollectionSpecifications(ctx, bson.D{})
 		if err != nil {
 			log.Error("Failed to get collection names for db=" + db)
 			return nil
 		}
-		for _, collection_name := range collection_names {
+		for _, spec := range collectionSpecs {
+			if spec.Type == "view" {
+				// You can't get collection status from a view
+				continue
+			}
+
 			collStatus := CollectionStatus{}
-			err := client.Database(db).RunCommand(ctx, bson.D{{"collStats", collection_name}, {"scale", 1}}).Decode(&collStatus)
+			err := client.Database(db).RunCommand(ctx, bson.D{{"collStats", spec.Name}, {"scale", 1}}).Decode(&collStatus)
 			collStatus.Database = db
-			collStatus.Name = collection_name
+			collStatus.Name = spec.Name
 			if err != nil {
-				log.Error("Failed to get collection status.")
+				log.Errorf("Failed to get collection status for collection=%s: %s", spec.Name, err)
 				return nil
 			}
 			collectionStatList.Members = append(collectionStatList.Members, collStatus)
