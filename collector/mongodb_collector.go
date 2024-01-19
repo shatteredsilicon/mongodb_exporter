@@ -56,7 +56,8 @@ func (in *MongodbCollectorOpts) toMongoClientOps() *options.ClientOptions {
 		SetSocketTimeout(in.SocketTimeout).
 		SetTimeout(in.SyncTimeout).
 		SetMaxPoolSize(uint64(in.DBPoolLimit)).
-		SetReadPreference(readpref.Nearest())
+		SetReadPreference(readpref.Nearest()).
+		SetDirect(true)
 }
 
 // MongodbCollector is in charge of collecting mongodb's metrics.

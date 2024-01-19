@@ -20,6 +20,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/log"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
@@ -71,28 +72,27 @@ type OplogStatus struct {
 	CollectionStats *OplogCollectionStats
 }
 
-// there's gotta be a better way to do this, but it works for now :/
-func BsonMongoTimestampToUnix(timestamp int64) float64 {
-	return float64(timestamp >> 32)
-}
-
 func getOplogTailOrHeadTimestamp(ctx context.Context, client *mongo.Client, returnHead bool) (float64, error) {
-	var result struct {
-		Timestamp int64 `bson:"ts"`
-	}
+	results := []struct {
+		Timestamp primitive.Timestamp `bson:"ts"`
+	}{}
 
 	sortOrder := 1
 	if returnHead {
 		sortOrder = -1
 	}
 
-	cur, err := client.Database(oplogDb).Collection(oplogCollection).Find(ctx, bson.D{}, options.Find().SetSort(bson.D{{"natural", sortOrder}}).SetLimit(1))
+	cur, err := client.Database(oplogDb).Collection(oplogCollection).Find(ctx, bson.D{}, options.Find().SetSort(bson.D{{"$natural", sortOrder}}).SetLimit(1))
 	if err != nil {
 		return 0, err
 	}
 
-	err = shared.AddCodeCommentToQuery(cur).Decode(&result)
-	return BsonMongoTimestampToUnix(result.Timestamp), err
+	err = shared.AddCodeCommentToQuery(cur).All(ctx, &results)
+	if len(results) == 0 {
+		return 0, err
+	}
+
+	return float64(results[0].Timestamp.T), err
 }
 
 func GetOplogTimestamps(ctx context.Context, client *mongo.Client) (*OplogTimestamps, error) {
