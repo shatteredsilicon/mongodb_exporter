@@ -20,6 +20,7 @@ import (
 
 	"github.com/shatteredsilicon/exporter_shared/helpers"
 	"github.com/stretchr/testify/assert"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -37,7 +38,7 @@ func TestCollector(t *testing.T) {
 	}
 
 	collector := NewMongodbCollector(&MongodbCollectorOpts{
-		URI:                      testMongoDBURL(),
+		ClientOpts:               options.Client().ApplyURI(testMongoDBURL()),
 		CollectDatabaseMetrics:   true,
 		CollectCollectionMetrics: true,
 		CollectTopMetrics:        true,
