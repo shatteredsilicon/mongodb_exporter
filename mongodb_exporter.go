@@ -19,7 +19,6 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"net/url"
 	"os"
 	"reflect"
 	"strconv"
@@ -32,6 +31,7 @@ import (
 	"github.com/prometheus/common/version"
 	"github.com/shatteredsilicon/exporter_shared"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/x/mongo/driver/connstring"
 	"gopkg.in/ini.v1"
 
 	"github.com/shatteredsilicon/mongodb_exporter/collector"
@@ -133,13 +133,12 @@ func main() {
 	tlsDisableHostnameValidation := lookupConfig("mongodb.disable-hostname-validation", *tlsDisableHostnameValidationF).(bool)
 
 	// uri must has scheme
-	u, err := url.Parse(uri)
-	if err != nil || u == nil || u.Scheme == "" {
+	if _, err := connstring.ParseAndValidate(uri); err != nil {
 		// assume it's invalid because it doesn't have schema,
 		// add default schema 'mongodb://' and try it again
 		tmpURI := "mongodb://" + uri
-		u, err = url.Parse(tmpURI)
-		if err == nil && u != nil && u.Scheme != "" {
+		_, err = connstring.ParseAndValidate(tmpURI)
+		if err == nil {
 			uri = tmpURI
 		}
 	}
