@@ -35,7 +35,7 @@ const namespace = "mongodb"
 
 // MongodbCollectorOpts is the options of the mongodb collector.
 type MongodbCollectorOpts struct {
-	URI                      string
+	ClientOpts               *options.ClientOptions
 	TLSConnection            bool
 	TLSCertificateFile       string
 	TLSPrivateKeyFile        string
@@ -52,7 +52,7 @@ type MongodbCollectorOpts struct {
 
 func (in *MongodbCollectorOpts) toMongoClientOps() *options.ClientOptions {
 	serverAPI := options.ServerAPI(options.ServerAPIVersion1)
-	return options.Client().ApplyURI(in.URI).SetServerAPIOptions(serverAPI).
+	return in.ClientOpts.SetServerAPIOptions(serverAPI).
 		SetSocketTimeout(in.SocketTimeout).
 		SetTimeout(in.SyncTimeout).
 		SetMaxPoolSize(uint64(in.DBPoolLimit)).
@@ -201,7 +201,7 @@ func (exporter *MongodbCollector) scrape(ch chan<- prometheus.Metric) {
 
 	mongoClient, err := exporter.getMongoClient()
 	if err != nil || mongoClient == nil {
-		err = fmt.Errorf("Can't create mongo client to %s", shared.RedactMongoUri(exporter.Opts.URI))
+		err = fmt.Errorf("Can't create mongo client to %s", shared.RedactMongoUri(exporter.Opts.ClientOpts.GetURI()))
 		log.Error(err)
 		exporter.mongoUp.Set(0)
 		return
@@ -223,7 +223,7 @@ func (exporter *MongodbCollector) scrape(ch chan<- prometheus.Metric) {
 		return
 	}
 
-	log.Debugf("Connected to: %s (node type: %s, server version: %s)", shared.RedactMongoUri(exporter.Opts.URI), nodeType, serverVersion)
+	log.Debugf("Connected to: %s (node type: %s, server version: %s)", shared.RedactMongoUri(exporter.Opts.ClientOpts.GetURI()), nodeType, serverVersion)
 	switch {
 	case nodeType == "mongos":
 		exporter.collectMongos(context.Background(), mongoClient, ch)
