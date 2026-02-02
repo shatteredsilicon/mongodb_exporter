@@ -143,10 +143,14 @@ func main() {
 		}
 	}
 
-	if lookupConfig("test", *testF).(bool) {
-		serverAPI := options.ServerAPI(options.ServerAPIVersion1)
-		clientOpts := options.Client().ApplyURI(uri)
+	serverAPI := options.ServerAPI(options.ServerAPIVersion1)
+	clientOpts := options.Client().ApplyURI(uri).SetServerAPIOptions(serverAPI)
+	if clientOpts.Direct == nil {
+		// default to directConnection=true if it's not set
+		clientOpts.SetDirect(true)
+	}
 
+	if lookupConfig("test", *testF).(bool) {
 		if tlsEnabled {
 			tlsConfig := tls.Config{
 				InsecureSkipVerify: tlsDisableHostnameValidation,
@@ -161,14 +165,13 @@ func main() {
 			if len(tlsCert) > 0 {
 				certificates, err := shared.LoadKeyPairFrom(tlsCert, tlsPrivateKey)
 				if err != nil {
-					log.Fatalf("Cannot load key pair from '%s' and '%s' to connect to server '%s'. Got: %v", tlsCert, tlsPrivateKey, uri, err)
+					log.Fatalf("Cannot load key pair from '%s' and '%s' to connect to server '%s'. Got: %v", tlsCert, tlsPrivateKey, shared.RedactMongoUri(uri), err)
 				}
 				tlsConfig.Certificates = []tls.Certificate{certificates}
 			}
 
 			clientOpts.SetTLSConfig(&tlsConfig)
 		}
-		clientOpts.SetServerAPIOptions(serverAPI)
 
 		buildInfo, err := shared.TestConnection(
 			context.Background(),
@@ -181,6 +184,7 @@ func main() {
 		fmt.Println(string(buildInfo))
 		os.Exit(0)
 	}
+
 	if *versionF {
 		fmt.Println(version.Print(program))
 		os.Exit(0)
@@ -189,7 +193,7 @@ func main() {
 	socketTimeout, _ := time.ParseDuration(lookupConfig("mongodb.socket-timeout", *socketTimeoutF).(string))
 	syncTimeout, _ := time.ParseDuration(lookupConfig("mongodb.sync-timeout", *syncTimeoutF).(string))
 	mongodbCollector := collector.NewMongodbCollector(&collector.MongodbCollectorOpts{
-		URI:                      uri,
+		ClientOpts:               clientOpts,
 		TLSConnection:            tlsEnabled,
 		TLSCertificateFile:       tlsCert,
 		TLSPrivateKeyFile:        tlsPrivateKey,
