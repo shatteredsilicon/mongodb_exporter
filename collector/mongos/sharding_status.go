@@ -16,11 +16,12 @@ package mongos
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/common/log"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
@@ -96,7 +97,7 @@ func GetMongosInfo(ctx context.Context, client *mongo.Client) *[]MongosInfo {
 	if cur, err := client.Database("config").Collection("mongos").Find(ctx, bson.M{
 		"ping": bson.M{"$gte": time.Now().Add(-10 * time.Minute)},
 	}); err != nil || shared.AddCodeCommentToQuery(cur).All(ctx, &mongosInfo) != nil {
-		log.Errorf("Failed to execute find query on 'config.mongos': %s.", err)
+		slog.Error(fmt.Sprintf("Failed to execute find query on 'config.mongos': %s.", err))
 	}
 	return &mongosInfo
 }
@@ -104,7 +105,7 @@ func GetMongosInfo(ctx context.Context, client *mongo.Client) *[]MongosInfo {
 func GetMongosBalancerLock(ctx context.Context, client *mongo.Client) *MongosBalancerLock {
 	var balancerLock MongosBalancerLock
 	if cur, err := client.Database("config").Collection("locks").Find(ctx, bson.M{"_id": "balancer"}); err != nil || shared.AddCodeCommentToQuery(cur).Decode(&balancerLock) != nil {
-		log.Errorf("Failed to execute find query on 'config.locks': %s.", err)
+		slog.Error(fmt.Sprintf("Failed to execute find query on 'config.locks': %s.", err))
 	}
 	return &balancerLock
 }

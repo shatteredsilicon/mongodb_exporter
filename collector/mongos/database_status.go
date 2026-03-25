@@ -2,10 +2,10 @@ package mongos
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/common/log"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -109,14 +109,14 @@ func GetDatabaseStatList(ctx context.Context, client *mongo.Client) *DatabaseSta
 	dbStatList := &DatabaseStatList{}
 	database_names, err := client.ListDatabaseNames(ctx, bson.D{})
 	if err != nil {
-		log.Error("Failed to get database names")
+		slog.Error("Failed to get database names")
 		return nil
 	}
 	for _, db := range database_names {
 		dbStatus := DatabaseStatus{}
 		err := client.Database(db).RunCommand(ctx, bson.D{{"dbStats", 1}, {"scale", 1}}).Decode(&dbStatus)
 		if err != nil {
-			log.Error("Failed to get database status.")
+			slog.Error("Failed to get database status.")
 			return nil
 		}
 		dbStatList.Members = append(dbStatList.Members, dbStatus)

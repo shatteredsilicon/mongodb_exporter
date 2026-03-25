@@ -16,9 +16,10 @@ package mongod
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/common/log"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -146,13 +147,13 @@ func (status *OplogStatus) Describe(ch chan<- *prometheus.Desc) {
 func GetOplogStatus(ctx context.Context, client *mongo.Client) *OplogStatus {
 	collectionStats, err := GetOplogCollectionStats(ctx, client)
 	if err != nil {
-		log.Errorf("Failed to get collection status: %s", err)
+		slog.Error(fmt.Sprintf("Failed to get collection status: %s", err))
 		return nil
 	}
 
 	oplogTimestamps, err := GetOplogTimestamps(ctx, client)
 	if err != nil {
-		log.Errorf("Failed to get oplog status: %s", err)
+		slog.Error(fmt.Sprintf("Failed to get oplog status: %s", err))
 		return nil
 	}
 
