@@ -2,9 +2,10 @@ package mongod
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/common/log"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -30,7 +31,7 @@ func (status *TopStatus) Export(ch chan<- prometheus.Metric) {
 func GetTopStatus(ctx context.Context, client *mongo.Client) *TopStatus {
 	topStatus, err := GetTopStats(ctx, client)
 	if err != nil {
-		log.Debugf("Failed to get top status: %s", err)
+		slog.Debug(fmt.Sprintf("Failed to get top status: %s", err))
 		return nil
 	}
 

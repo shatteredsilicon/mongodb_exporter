@@ -2,9 +2,10 @@ package mongod
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/common/log"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -117,13 +118,13 @@ func GetCollectionStatList(ctx context.Context, client *mongo.Client) *Collectio
 	collectionStatList := &CollectionStatList{}
 	database_names, err := client.ListDatabaseNames(ctx, bson.D{})
 	if err != nil {
-		log.Error("Failed to get database names")
+		slog.Error("Failed to get database names")
 		return nil
 	}
 	for _, db := range database_names {
 		collectionSpecs, err := client.Database(db).ListCollectionSpecifications(ctx, bson.D{})
 		if err != nil {
-			log.Error("Failed to get collection names for db=" + db)
+			slog.Error("Failed to get collection names for db=" + db)
 			return nil
 		}
 		for _, spec := range collectionSpecs {
@@ -137,7 +138,7 @@ func GetCollectionStatList(ctx context.Context, client *mongo.Client) *Collectio
 			collStatus.Database = db
 			collStatus.Name = spec.Name
 			if err != nil {
-				log.Errorf("Failed to get collection status for collection=%s: %s", spec.Name, err)
+				slog.Error(fmt.Sprintf("Failed to get collection status for collection=%s: %s", spec.Name, err))
 				return nil
 			}
 			collectionStatList.Members = append(collectionStatList.Members, collStatus)

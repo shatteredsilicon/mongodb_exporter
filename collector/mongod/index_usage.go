@@ -2,9 +2,10 @@ package mongod
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/common/log"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -51,16 +52,16 @@ func (indexStats *IndexStatsList) Describe(ch chan<- *prometheus.Desc) {
 // GetIndexUsageStatList returns stats for a given collection in a database
 func GetIndexUsageStatList(ctx context.Context, client *mongo.Client) *IndexStatsList {
 	indexUsageStatsList := &IndexStatsList{}
-	log.Debug("collecting index stats")
+
 	databaseNames, err := client.ListDatabaseNames(ctx, bson.D{})
 	if err != nil {
-		log.Errorf("Failed to get database names: %s", err)
+		slog.Error(fmt.Sprintf("Failed to get database names: %s", err))
 		return nil
 	}
 	for _, db := range databaseNames {
 		collectionSpecs, err := client.Database(db).ListCollectionSpecifications(ctx, bson.D{})
 		if err != nil {
-			log.Errorf("Failed to get collection names for db=%s: %s", db, err)
+			slog.Error(fmt.Sprintf("Failed to get collection names for db=%s: %s", db, err))
 			return nil
 		}
 		for _, spec := range collectionSpecs {
@@ -75,10 +76,10 @@ func GetIndexUsageStatList(ctx context.Context, client *mongo.Client) *IndexStat
 
 			collIndexUsageStats := IndexStatsList{}
 			if cur, err := client.Database(db).Collection(spec.Name).Aggregate(ctx, mongo.Pipeline{bson.D{{"$indexStats", bson.M{}}}}); err != nil {
-				log.Errorf("Failed to collect index stats for coll=%s: %s", spec.Name, err)
+				slog.Error(fmt.Sprintf("Failed to collect index stats for coll=%s: %s", spec.Name, err))
 				return nil
 			} else if cur.All(ctx, &collIndexUsageStats.Items); err != nil {
-				log.Errorf("Failed to collect index stats for coll=%s: %s", spec.Name, err)
+				slog.Error(fmt.Sprintf("Failed to collect index stats for coll=%s: %s", spec.Name, err))
 				return nil
 			}
 			// Label index stats with corresponding db.collection

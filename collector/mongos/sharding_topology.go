@@ -16,9 +16,10 @@ package mongos
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/common/log"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
@@ -91,7 +92,7 @@ type ShardingTopoStats struct {
 func GetShards(ctx context.Context, client *mongo.Client) *[]ShardingTopoShardInfo {
 	var shards []ShardingTopoShardInfo
 	if cur, err := client.Database("config").Collection("shards").Find(ctx, bson.D{}); err != nil || shared.AddCodeCommentToQuery(cur).All(ctx, &shards) != nil {
-		log.Errorf("Failed to execute find query on 'config.shards': %s.", err)
+		slog.Error(fmt.Sprintf("Failed to execute find query on 'config.shards': %s.", err))
 	}
 
 	return &shards
@@ -100,7 +101,7 @@ func GetShards(ctx context.Context, client *mongo.Client) *[]ShardingTopoShardIn
 func GetTotalChunks(ctx context.Context, client *mongo.Client) float64 {
 	cur, err := client.Database("config").Collection("chunks").Find(ctx, bson.D{})
 	if err != nil {
-		log.Errorf("Failed to execute find query on 'config.chunks': %s.", err)
+		slog.Error(fmt.Sprintf("Failed to execute find query on 'config.chunks': %s.", err))
 		return 0
 	}
 
@@ -117,9 +118,9 @@ func GetTotalChunksByShard(ctx context.Context, client *mongo.Client) *[]Shardin
 			}},
 		}},
 	); err != nil {
-		log.Errorf("Failed to execute find query on 'config.chunks': %s.", err)
+		slog.Error(fmt.Sprintf("Failed to execute find query on 'config.chunks': %s.", err))
 	} else if err = cur.All(ctx, &results); err != nil {
-		log.Errorf("Failed to execute find query on 'config.chunks': %s.", err)
+		slog.Error(fmt.Sprintf("Failed to execute find query on 'config.chunks': %s.", err))
 	}
 
 	return &results
@@ -131,9 +132,9 @@ func GetTotalDatabases(ctx context.Context, client *mongo.Client) *[]ShardingTop
 		{"$match", bson.D{{"_id", bson.D{{"$ne", "admin"}}}}},
 		{"$group", bson.D{{"_id", "$partitioned"}, {"total", bson.D{{"$sum", 1}}}}},
 	}}); err != nil {
-		log.Errorf("Failed to execute find query on 'config.databases': %s.", err)
+		slog.Error(fmt.Sprintf("Failed to execute find query on 'config.databases': %s.", err))
 	} else if err = cur.All(ctx, &results); err != nil {
-		log.Errorf("Failed to execute find query on 'config.databases': %s.", err)
+		slog.Error(fmt.Sprintf("Failed to execute find query on 'config.databases': %s.", err))
 	}
 
 	return &results
@@ -142,7 +143,7 @@ func GetTotalDatabases(ctx context.Context, client *mongo.Client) *[]ShardingTop
 func GetTotalShardedCollections(ctx context.Context, client *mongo.Client) float64 {
 	cur, err := client.Database("config").Collection("collections").Find(ctx, bson.M{"dropped": false})
 	if err != nil {
-		log.Errorf("Failed to execute find query on 'config.collections': %s.", err)
+		slog.Error(fmt.Sprintf("Failed to execute find query on 'config.collections': %s.", err))
 		return 0
 	}
 
