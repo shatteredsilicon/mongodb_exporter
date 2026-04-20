@@ -1,11 +1,5 @@
 # MongoDB exporter
-[![Release](https://img.shields.io/github/release/percona/mongodb_exporter.svg?style=flat)](https://github.com/percona/mongodb_exporter/releases/latest)
-[![Build Status](https://github.com/percona/mongodb_exporter/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/percona/mongodb_exporter/actions/workflows/build.yml?query=branch%3Amain)
-[![codecov.io Code Coverage](https://img.shields.io/codecov/c/github/percona/mongodb_exporter.svg?maxAge=2592000)](https://codecov.io/github/percona/mongodb_exporter?branch=main)
-[![Go Report Card](https://goreportcard.com/badge/github.com/percona/mongodb_exporter)](https://goreportcard.com/report/github.com/percona/mongodb_exporter)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/percona/mongodb_exporter/badge)](https://scorecard.dev/viewer/?uri=github.com/percona/mongodb_exporter)
-[![CLA assistant](https://cla-assistant.percona.com/readme/badge/percona/mongodb_exporter)](https://cla-assistant.percona.com/percona/mongodb_exporter)
-[![Forum](https://img.shields.io/badge/Forum-join-brightgreen)](https://forums.percona.com/)
+[![Go Report Card](https://goreportcard.com/badge/github.com/shatteredsilicon/mongodb_exporter)](https://goreportcard.com/report/github.com/shatteredsilicon/mongodb_exporter)
 
 
 This is the new MongoDB exporter implementation that handles ALL metrics exposed by MongoDB monitoring commands.
@@ -22,44 +16,6 @@ Currently, these metric sources are implemented:
 ## Supported MongoDB versions
 
 The exporter works with Percona Server for MongoDB and MongoDB Community or Enterprise Edition versions 6.0 and newer. Older versions might also work but are not tested anymore.
-
-## Info on Percona MongoDB exporter versions
-
-The old 0.1x.y version (ex `master` branch) has been moved to the `release-0.1x` branch.
-
-A flag, `--compatible-mode`, which exposes metrics with 0.1x compatible metric
-names has been implemented which simplifies migration from the old version to
-the current version.
-
-### Build the exporter
-The build process uses the dockerized version of goreleaser so you don't need to install Go.
-Just run `make release` and the new binaries will be generated under the build directory.
-```
-├── build
-│ ├── config.yaml
-│ ├── mongodb_exporter_7c73946_checksums.txt
-│ ├── mongodb_exporter-7c73946.darwin-amd64.tar.gz
-│ ├── mongodb_exporter-7c73946.linux-amd64.tar.gz
-│ ├── mongodb_exporter_darwin_amd64
-│ │ └── mongodb_exporter <--- MacOS binary
-│ └── mongodb_exporter_linux_amd64
-│ └── mongodb_exporter <--- Linux binary
-```
-### Running the exporter
-If you built the exporter using the method mentioned in the previous section, the generated binaries are in `mongodb_exporter_linux_amd64/mongodb_exporter` or `mongodb_exporter_darwin_amd64/mongodb_exporter`
-
-#### Docker
-A docker image is available on the [official percona repository](https://hub.docker.com/r/percona/mongodb_exporter).
-
-##### Examples
-
-```sh
-# with podman
-podman run -d -p 9216:9216 percona/mongodb_exporter:0.40 --mongodb.uri=mongodb://127.0.0.1:17001
-
-# with docker
-docker run -d -p 9216:9216 percona/mongodb_exporter:0.40 --mongodb.uri=mongodb://127.0.0.1:17001
-```
 
 ### Permissions
 Connecting user should have sufficient rights to query needed stats:
@@ -203,5 +159,3 @@ Check [the official documentation](https://docs.mongodb.com/manual/reference/rep
 
 See the [Reference Guide](REFERENCE.md) for details on using the exporter.
 ## Bug Reports / Feature PR
-
-Refer to the [Contribution Guide](CONTRIBUTING.md).

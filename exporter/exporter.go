@@ -18,6 +18,7 @@ package exporter
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -31,7 +32,7 @@ import (
 	"github.com/prometheus/common/promslog"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"github.com/percona/mongodb_exporter/exporter/dsn_fix"
+	"github.com/shatteredsilicon/mongodb_exporter/exporter/dsn_fix"
 )
 
 // Exporter holds Exporter methods and attributes.
@@ -52,7 +53,7 @@ type Opts struct {
 	DisableDefaultRegistry bool
 	DiscoveringMode        bool
 	GlobalConnPool         bool
-	TimeoutOffset          int
+	TLSConfig              *tls.Config
 
 	CollectAll               bool
 	EnableDBStats            bool
@@ -315,7 +316,6 @@ func (e *Exporter) Handler() http.Handler {
 				e.logger.Info("Invalid X-Prometheus-Scrape-Timeout-Seconds header", "error", err)
 			}
 		}
-		seconds -= float64(e.opts.TimeoutOffset)
 
 		var client *mongo.Client
 		ctx, cancel := context.WithTimeout(r.Context(), time.Duration(seconds*float64(time.Second)))
@@ -434,6 +434,10 @@ func connect(ctx context.Context, opts *Opts) (*mongo.Client, error) {
 		clientOpts.SetServerSelectionTimeout(connectTimeout)
 	}
 
+	if clientOpts.TLSConfig != nil {
+		clientOpts.SetTLSConfig(clientOpts.TLSConfig)
+	}
+
 	client, err := mongo.Connect(ctx, clientOpts)
 	if err != nil {
 		return nil, fmt.Errorf("invalid MongoDB options: %w", err)
@@ -447,4 +451,8 @@ func connect(ctx context.Context, opts *Opts) (*mongo.Client, error) {
 	}
 
 	return client, nil
+}
+
+func Connect(ctx context.Context, opts *Opts) (*mongo.Client, error) {
+	return connect(ctx, opts)
 }

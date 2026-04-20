@@ -26,8 +26,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"github.com/percona/mongodb_exporter/internal/proto"
-	"github.com/percona/mongodb_exporter/internal/util"
+	"github.com/shatteredsilicon/mongodb_exporter/internal/proto"
+	"github.com/shatteredsilicon/mongodb_exporter/internal/util"
 )
 
 // pbm collector collects metrics from PBM (Percona Backup for MongoDb).

@@ -25,8 +25,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"github.com/percona/mongodb_exporter/internal/proto"
-	"github.com/percona/mongodb_exporter/internal/util"
+	"github.com/shatteredsilicon/mongodb_exporter/internal/proto"
+	"github.com/shatteredsilicon/mongodb_exporter/internal/util"
 )
 
 type mongoDBNodeType string

@@ -95,16 +95,10 @@ func MongoClientNodeType(ctx context.Context, client *mongo.Client) (string, err
 }
 
 // TestConnection connects to MongoDB and returns BuildInfo.
-func TestConnection(ctx context.Context, opts *options.ClientOptions) ([]byte, error) {
-	client, err := MongoClient(ctx, opts)
-	if err != nil || client == nil {
-		return nil, fmt.Errorf("cannot connect using uri '%s': %s", opts.GetURI(), err.Error())
-	}
-	defer client.Disconnect(ctx)
-
+func TestConnection(ctx context.Context, client *mongo.Client) ([]byte, error) {
 	buildInfo, err := getBuildInfo(ctx, client)
 	if err != nil {
-		return nil, fmt.Errorf("cannot get buildInfo() for MongoDB using uri '%s': %s", opts.GetURI(), err.Error())
+		return nil, fmt.Errorf("cannot get buildInfo() for MongoDB: %s", err.Error())
 	}
 
 	b, err := json.MarshalIndent(buildInfo, "", "  ")

@@ -30,8 +30,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"github.com/percona/mongodb_exporter/internal/proto"
-	"github.com/percona/mongodb_exporter/internal/util"
+	"github.com/shatteredsilicon/mongodb_exporter/internal/proto"
+	"github.com/shatteredsilicon/mongodb_exporter/internal/util"
 )
 
 const (

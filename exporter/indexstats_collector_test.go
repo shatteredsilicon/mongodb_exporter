@@ -31,7 +31,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"github.com/percona/mongodb_exporter/internal/tu"
+	"github.com/shatteredsilicon/mongodb_exporter/internal/tu"
 )
 
 func TestIndexStatsCollector(t *testing.T) {

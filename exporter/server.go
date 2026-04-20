@@ -120,7 +120,7 @@ func OverallTargetsHandler(exporters []*Exporter, logger *slog.Logger) http.Hand
 		filters := r.URL.Query()["collect[]"]
 
 		for _, e := range exporters {
-			ctx, cancel := context.WithTimeout(r.Context(), time.Duration(seconds-e.opts.TimeoutOffset)*time.Second)
+			ctx, cancel := context.WithTimeout(r.Context(), time.Duration(seconds)*time.Second)
 			defer cancel()
 
 			requestOpts := GetRequestOpts(filters, e.opts)

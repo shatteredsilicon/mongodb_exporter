@@ -25,7 +25,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"github.com/percona/mongodb_exporter/internal/tu"
+	"github.com/shatteredsilicon/mongodb_exporter/internal/tu"
 )
 
 //nolint:gochecknoglobals

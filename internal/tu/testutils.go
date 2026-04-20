@@ -215,9 +215,9 @@ func IPForContainer(name string) (string, error) {
 
 // SetupFakeResolver sets up Fake DNS server to resolve SRV records.
 func SetupFakeResolver() *mockdns.Server {
-	p1, err1 := strconv.ParseInt(GetenvDefault("TEST_MONGODB_S1_PRIMARY_PORT", "17001"), 10, 64)
-	p2, err2 := strconv.ParseInt(GetenvDefault("TEST_MONGODB_S1_SECONDARY1_PORT", "17002"), 10, 64)
-	p3, err3 := strconv.ParseInt(GetenvDefault("TEST_MONGODB_S1_SECONDARY2_PORT", "17003"), 10, 64)
+	p1, err1 := strconv.ParseUint(GetenvDefault("TEST_MONGODB_S1_PRIMARY_PORT", "17001"), 10, 16)
+	p2, err2 := strconv.ParseUint(GetenvDefault("TEST_MONGODB_S1_SECONDARY1_PORT", "17002"), 10, 16)
+	p3, err3 := strconv.ParseUint(GetenvDefault("TEST_MONGODB_S1_SECONDARY2_PORT", "17003"), 10, 16)
 
 	if err1 != nil || err2 != nil || err3 != nil {
 		panic("Invalid ports")

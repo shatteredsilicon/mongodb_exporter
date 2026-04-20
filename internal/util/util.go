@@ -22,7 +22,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/topology"
 
-	"github.com/percona/mongodb_exporter/internal/proto"
+	"github.com/shatteredsilicon/mongodb_exporter/internal/proto"
 )
 
 const (

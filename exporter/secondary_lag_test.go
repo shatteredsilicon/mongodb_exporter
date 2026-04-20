@@ -29,7 +29,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
-	"github.com/percona/mongodb_exporter/internal/tu"
+	"github.com/shatteredsilicon/mongodb_exporter/internal/tu"
 )
 
 type ReplicasetConfig struct {

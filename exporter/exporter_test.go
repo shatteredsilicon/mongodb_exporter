@@ -33,7 +33,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/percona/mongodb_exporter/internal/tu"
+	"github.com/shatteredsilicon/mongodb_exporter/internal/tu"
 )
 
 // Use this for testing because labels like cluster ID are not constant in docker containers

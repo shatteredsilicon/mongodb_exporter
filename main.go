@@ -16,18 +16,28 @@
 package main
 
 import (
+	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"log/slog"
 	"net"
 	"net/url"
+	"os"
+	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/alecthomas/kong"
 	"github.com/prometheus/common/promslog"
+	"github.com/prometheus/exporter-toolkit/web"
+	"go.yaml.in/yaml/v2"
+	"golang.org/x/crypto/bcrypt"
+	"gopkg.in/ini.v1"
 
-	"github.com/percona/mongodb_exporter/exporter"
+	"github.com/shatteredsilicon/mongodb_exporter/exporter"
+	"github.com/shatteredsilicon/mongodb_exporter/shared"
 )
 
 //nolint:gochecknoglobals
@@ -47,9 +57,7 @@ type GlobalFlags struct {
 	GlobalConnPool        bool     `name:"mongodb.global-conn-pool" help:"Use global connection pool instead of creating new pool for each http request." negatable:""`
 	DirectConnect         bool     `name:"mongodb.direct-connect" help:"Whether or not a direct connect should be made. Direct connections are not valid if multiple hosts are specified or an SRV URI is used." default:"true" negatable:""`
 	WebListenAddress      string   `name:"web.listen-address" help:"Address to listen on for web interface and telemetry" default:":9216"`
-	WebTelemetryPath      string   `name:"web.telemetry-path" help:"Metrics expose path" default:"/metrics"`
-	TLSConfigPath         string   `name:"web.config" help:"Path to the file having Prometheus TLS config for basic auth"`
-	TimeoutOffset         int      `name:"web.timeout-offset" help:"Offset to subtract from the request timeout in seconds" default:"1"`
+	WebTelemetryPath      string   `name:"web.telemetry-path" help:"Metrics expose path" default:"/metrics" aliases:"web.metrics-path"`
 	LogLevel              string   `name:"log.level" help:"Only log messages with the given severity or above. Valid levels: [debug, info, warn, error, fatal]" enum:"debug,info,warn,error,fatal" default:"error"`
 	ConnectTimeoutMS      int      `name:"mongodb.connect-timeout-ms" help:"Connection timeout in milliseconds" default:"5000"`
 
@@ -57,12 +65,12 @@ type GlobalFlags struct {
 	EnableDiagnosticData     bool `name:"collector.diagnosticdata" help:"Enable collecting metrics from getDiagnosticData"`
 	EnableReplicasetStatus   bool `name:"collector.replicasetstatus" help:"Enable collecting metrics from replSetGetStatus"`
 	EnableReplicasetConfig   bool `name:"collector.replicasetconfig" help:"Enable collecting metrics from replSetGetConfig"`
-	EnableDBStats            bool `name:"collector.dbstats" help:"Enable collecting metrics from dbStats"`
+	EnableDBStats            bool `name:"collector.dbstats" help:"Enable collecting metrics from dbStats" aliases:"collect.database"`
 	EnableDBStatsFreeStorage bool `name:"collector.dbstatsfreestorage" help:"Enable collecting free space metrics from dbStats"`
-	EnableTopMetrics         bool `name:"collector.topmetrics" help:"Enable collecting metrics from top admin command"`
+	EnableTopMetrics         bool `name:"collector.topmetrics" help:"Enable collecting metrics from top admin command" aliases:"collect.topmetrics"`
 	EnableCurrentopMetrics   bool `name:"collector.currentopmetrics" help:"Enable collecting metrics currentop admin command"`
-	EnableIndexStats         bool `name:"collector.indexstats" help:"Enable collecting metrics from $indexStats"`
-	EnableCollStats          bool `name:"collector.collstats" help:"Enable collecting metrics from $collStats"`
+	EnableIndexStats         bool `name:"collector.indexstats" help:"Enable collecting metrics from $indexStats" aliases:"collect.indexusage"`
+	EnableCollStats          bool `name:"collector.collstats" help:"Enable collecting metrics from $collStats" aliases:"collect.collection"`
 	EnableProfile            bool `name:"collector.profile" help:"Enable collecting metrics from profile"`
 	EnableFCV                bool `name:"collector.fcv" help:"Enable Feature Compatibility Version collector"`
 	EnableShards             bool `help:"Enable collecting metrics from sharded Mongo clusters about chunks" name:"collector.shards"`
@@ -83,6 +91,23 @@ type GlobalFlags struct {
 	CompatibleMode  bool `name:"compatible-mode" help:"Enable old mongodb-exporter compatible metrics" negatable:""`
 	Version         bool `name:"version" help:"Show version and exit"`
 	SplitCluster    bool `name:"split-cluster" help:"Treat each node in cluster as a separate target" negatable:"" default:"false"`
+
+	Config string `name:"config" help:"Path of config file" default:"/opt/ss/ssm-client/mongodb_exporter.conf"`
+	Test   bool   `name:"test" help:"Check MongoDB connection and exit."`
+
+	TLS                          bool   `name:"mongodb.tls" help:"Enable tls connection with mongo server"`
+	TLSCert                      string `name:"mongodb.tls-cert" help:"Path to PEM file that contains the certificate."`
+	TLSPrivateKey                string `name:"mongodb.tls-private-key" help:"Path to PEM file that contains the decrypted private key."`
+	TLSCA                        string `name:"mongodb.tls-ca" help:"Path to PEM file that contains the trusted CAs."`
+	TLSDisableHostnameValidation bool   `name:"mongodb.tls-disable-hostname-validation" help:"Disable hostname validation."`
+
+	WebConfigFile      string   `name:"web.config" help:"Path to the file having Prometheus TLS config for basic auth" default:"/opt/ss/ssm-client/mongodb_exporter.yml"`
+	WebAuthFile        string   `name:"web.auth-file" help:"Path to YAML file with server_user, server_password keys for HTTP Basic authentication."`
+	WebTLSMinVersion   string   `name:"web.tls-min-version" help:"Minimum TLS version that is acceptable."`
+	WebTLSMaxVersion   string   `name:"web.tls-max-version" help:"Maximum TLS version that is acceptable."`
+	WebTLSCipherSuites []string `name:"web.tls-cipher-suites" help:"A list of enabled TLS 1.0–1.2 cipher suites. Check full list at https://github.com/golang/go/blob/master/src/crypto/tls/cipher_suites.go"`
+	WebSSLCertFile     string   `name:"web.ssl-cert-file" help:"Path to SSL certificate file."`
+	WebSSLKeyFile      string   `name:"web.ssl-key-file" help:"Path to SSL key file."`
 }
 
 func main() {
@@ -106,11 +131,54 @@ func main() {
 		return
 	}
 
+	iniCfg, err := ini.Load(opts.Config)
+	if err != nil {
+		ctx.Fatalf("Failed to load config file %s: %s", opts.Config, err.Error())
+	}
+
+	if os.Getenv("ON_CONFIGURE") == "1" {
+		err := configure(ctx, iniCfg)
+		if err != nil {
+			os.Exit(1)
+		}
+		if err := iniCfg.SaveTo(opts.Config); err != nil {
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	// override flag value with config value
+	// if it's not set
+	overrideFlags(ctx, iniCfg)
+
 	logLevel := promslog.NewLevel()
 	_ = logLevel.Set(opts.LogLevel)
 	logger := promslog.New(&promslog.Config{
 		Level: logLevel,
 	})
+
+	if opts.Test {
+		URIs := parseURIList(opts.URI, logger, opts.SplitCluster)
+		buildInfos := make([][]byte, len(URIs))
+		for serverIdx := range URIs {
+			exporterOpts := buildExporterOpts(opts, URIs[serverIdx], logger)
+			client, err := exporter.Connect(context.Background(), exporterOpts)
+			if err != nil {
+				ctx.Fatalf("Can't connect to MongoDB: %s", err.Error())
+			} else {
+				buildInfos[serverIdx], err = shared.TestConnection(context.Background(), client)
+				if err != nil {
+					ctx.Fatalf("Failed to test the connection: %s", err.Error())
+				}
+			}
+			client.Disconnect(context.Background())
+		}
+		if len(buildInfos) > 0 {
+			fmt.Println(string(buildInfos[0]))
+		}
+		os.Exit(0)
+	}
+
 	logger.Debug("Compatible mode", "compatible_mode", opts.CompatibleMode)
 
 	if opts.WebTelemetryPath == "" {
@@ -122,9 +190,87 @@ func main() {
 		ctx.Fatalf("No MongoDB hosts were specified. You must specify the host(s) with the --mongodb.uri command argument or the MONGODB_URI environment variable")
 	}
 
-	if opts.TimeoutOffset <= 0 {
-		logger.Warn("Timeout offset needs to be greater than \"0\", falling back to \"1\". You can specify the timout offset with --web.timeout-offset command argument")
-		opts.TimeoutOffset = 1
+	if opts.WebConfigFile == "" {
+		ctx.Fatalf("Use web.config.file flag/config to tell the location of prometheus web file")
+	}
+
+	var authC authConfig
+	if opts.WebAuthFile != "" {
+		authConfigBytes, err := os.ReadFile(opts.WebAuthFile)
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+		if err := yaml.Unmarshal(authConfigBytes, &authC); err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+	}
+
+	tlsMinVer := (web.TLSVersion)(tls.VersionTLS10)
+	tlsMaxVer := (web.TLSVersion)(tls.VersionTLS13)
+	if opts.WebTLSMinVersion != "" {
+		if err := yaml.Unmarshal([]byte(opts.WebTLSMinVersion), &tlsMinVer); err != nil {
+			logger.Error(fmt.Sprintf("Unsupported tls minimum version: %s", opts.WebTLSMinVersion))
+			os.Exit(1)
+		}
+	}
+	if opts.WebTLSMaxVersion != "" {
+		if err := yaml.Unmarshal([]byte(opts.WebTLSMaxVersion), &tlsMaxVer); err != nil {
+			logger.Error(fmt.Sprintf("Unsupported tls maximum version: %s", opts.WebTLSMaxVersion))
+			os.Exit(1)
+		}
+	}
+
+	cipherSuites := []web.Cipher{}
+	if len(opts.WebTLSCipherSuites) != 0 {
+		allCipherSuites := append(tls.CipherSuites(), tls.InsecureCipherSuites()...)
+		for _, tlsCipherSuite := range opts.WebTLSCipherSuites {
+			var cipherSuite *tls.CipherSuite
+			for _, v := range allCipherSuites {
+				if v.Name == tlsCipherSuite {
+					cipherSuite = v
+					break
+				}
+			}
+			if cipherSuite == nil {
+				logger.Error(fmt.Sprintf("Unsupported cipher suite: %s", tlsCipherSuite))
+				os.Exit(1)
+			}
+			cipherSuites = append(cipherSuites, web.Cipher(cipherSuite.ID))
+		}
+	}
+
+	prometheusWebConfig := prometheusWebConfig{
+		TLSConfig: tlsConfig{
+			MinVersion:   &tlsMinVer,
+			MaxVersion:   &tlsMaxVer,
+			CipherSuites: cipherSuites,
+		},
+	}
+	if authC.ServerUser != "" {
+		hashedPsw, err := bcrypt.GenerateFromPassword([]byte(authC.ServerPassword), 0)
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+		prometheusWebConfig.Users = map[string]string{
+			authC.ServerUser: string(hashedPsw),
+		}
+	}
+	if opts.WebSSLCertFile != "" || opts.WebSSLKeyFile != "" {
+		prometheusWebConfig.TLSConfig.TLSCertPath = opts.WebSSLCertFile
+		prometheusWebConfig.TLSConfig.TLSKeyPath = opts.WebSSLKeyFile
+	}
+
+	webConfigBytes, err := yaml.Marshal(prometheusWebConfig)
+	if err != nil {
+		logger.Error(err.Error())
+		os.Exit(1)
+	}
+	if err = os.WriteFile(opts.WebConfigFile, webConfigBytes, 0600); err != nil {
+		logger.Error(err.Error())
+		os.Exit(1)
 	}
 
 	serverOpts := &exporter.ServerOpts{
@@ -132,71 +278,13 @@ func main() {
 		MultiTargetPath:   "/scrape",
 		OverallTargetPath: "/scrapeall",
 		WebListenAddress:  opts.WebListenAddress,
-		TLSConfigPath:     opts.TLSConfigPath,
+		TLSConfigPath:     opts.WebConfigFile,
 	}
 	exporter.RunWebServer(serverOpts, buildServers(opts, logger), logger)
 }
 
 func buildExporter(opts GlobalFlags, uri string, log *slog.Logger) *exporter.Exporter {
-	uri = buildURI(uri, opts.User, opts.Password)
-	log.Debug("Connection URI", "uri", uri)
-
-	uriParsed, _ := url.Parse(uri)
-	var nodeName string
-	switch {
-	case uriParsed == nil:
-		nodeName = ""
-	case uriParsed.Port() != "":
-		nodeName = net.JoinHostPort(uriParsed.Hostname(), uriParsed.Port())
-	default:
-		nodeName = uriParsed.Host
-	}
-
-	collStatsNamespaces := []string{}
-	if opts.CollStatsNamespaces != "" {
-		collStatsNamespaces = strings.Split(opts.CollStatsNamespaces, ",")
-	}
-	indexStatsCollections := []string{}
-	if opts.IndexStatsCollections != "" {
-		indexStatsCollections = strings.Split(opts.IndexStatsCollections, ",")
-	}
-	exporterOpts := &exporter.Opts{
-		CollStatsNamespaces:   collStatsNamespaces,
-		CompatibleMode:        opts.CompatibleMode,
-		DiscoveringMode:       opts.DiscoveringMode,
-		IndexStatsCollections: indexStatsCollections,
-		Logger:                log,
-		URI:                   uri,
-		NodeName:              nodeName,
-		GlobalConnPool:        opts.GlobalConnPool,
-		DirectConnect:         opts.DirectConnect,
-		ConnectTimeoutMS:      opts.ConnectTimeoutMS,
-		TimeoutOffset:         opts.TimeoutOffset,
-
-		DisableDefaultRegistry:   !opts.EnableExporterMetrics,
-		EnableDiagnosticData:     opts.EnableDiagnosticData,
-		EnableReplicasetStatus:   opts.EnableReplicasetStatus,
-		EnableReplicasetConfig:   opts.EnableReplicasetConfig,
-		EnableCurrentopMetrics:   opts.EnableCurrentopMetrics,
-		EnableTopMetrics:         opts.EnableTopMetrics,
-		EnableDBStats:            opts.EnableDBStats,
-		EnableDBStatsFreeStorage: opts.EnableDBStatsFreeStorage,
-		EnableIndexStats:         opts.EnableIndexStats,
-		EnableCollStats:          opts.EnableCollStats,
-		EnableProfile:            opts.EnableProfile,
-		EnableShards:             opts.EnableShards,
-		EnableFCV:                opts.EnableFCV,
-		EnablePBMMetrics:         opts.EnablePBM,
-
-		EnableOverrideDescendingIndex: opts.EnableOverrideDescendingIndex,
-
-		CollStatsLimit:         opts.CollStatsLimit,
-		CollStatsEnableDetails: opts.CollStatsEnableDetails,
-		CollectAll:             opts.CollectAll,
-		ProfileTimeTS:          opts.ProfileTimeTS,
-		CurrentOpSlowTime:      opts.CurrentOpSlowTime,
-	}
-
+	exporterOpts := buildExporterOpts(opts, uri, log)
 	return exporter.New(exporterOpts)
 }
 
@@ -313,4 +401,172 @@ func buildURI(uri string, user string, password string) string {
 	}
 
 	return parsedURI.String()
+}
+
+func buildExporterOpts(opts GlobalFlags, uri string, log *slog.Logger) *exporter.Opts {
+	uri = buildURI(uri, opts.User, opts.Password)
+
+	uriParsed, _ := url.Parse(uri)
+	var nodeName string
+	switch {
+	case uriParsed == nil:
+		nodeName = ""
+	case uriParsed.Port() != "":
+		nodeName = net.JoinHostPort(uriParsed.Hostname(), uriParsed.Port())
+	default:
+		nodeName = uriParsed.Host
+	}
+
+	collStatsNamespaces := []string{}
+	if opts.CollStatsNamespaces != "" {
+		collStatsNamespaces = strings.Split(opts.CollStatsNamespaces, ",")
+	}
+	indexStatsCollections := []string{}
+	if opts.IndexStatsCollections != "" {
+		indexStatsCollections = strings.Split(opts.IndexStatsCollections, ",")
+	}
+
+	var tlsConfig *tls.Config
+	if opts.TLS {
+		tlsConfig = &tls.Config{
+			InsecureSkipVerify: opts.TLSDisableHostnameValidation,
+		}
+		if len(opts.TLSCA) > 0 {
+			ca, err := shared.LoadCaFrom(opts.TLSCA)
+			if err != nil {
+				log.Error(fmt.Sprintf("Couldn't load client CAs from %s. Got: %s", opts.TLSCA, err))
+				os.Exit(1)
+			}
+			tlsConfig.RootCAs = ca
+		}
+		if len(opts.TLSCert) > 0 {
+			certificates, err := shared.LoadKeyPairFrom(opts.TLSCert, opts.TLSPrivateKey)
+			if err != nil {
+				log.Error(fmt.Sprintf("Cannot load key pair from '%s' and '%s' to connect to server '%s'. Got: %v", opts.TLSCert, opts.TLSPrivateKey, shared.RedactMongoUri(uri), err))
+				os.Exit(1)
+			}
+			tlsConfig.Certificates = []tls.Certificate{certificates}
+		}
+	}
+
+	return &exporter.Opts{
+		CollStatsNamespaces:   collStatsNamespaces,
+		CompatibleMode:        opts.CompatibleMode,
+		DiscoveringMode:       opts.DiscoveringMode,
+		IndexStatsCollections: indexStatsCollections,
+		Logger:                log,
+		URI:                   uri,
+		NodeName:              nodeName,
+		GlobalConnPool:        opts.GlobalConnPool,
+		DirectConnect:         opts.DirectConnect,
+		ConnectTimeoutMS:      opts.ConnectTimeoutMS,
+		TLSConfig:             tlsConfig,
+
+		DisableDefaultRegistry:   !opts.EnableExporterMetrics,
+		EnableDiagnosticData:     opts.EnableDiagnosticData,
+		EnableReplicasetStatus:   opts.EnableReplicasetStatus,
+		EnableReplicasetConfig:   opts.EnableReplicasetConfig,
+		EnableCurrentopMetrics:   opts.EnableCurrentopMetrics,
+		EnableTopMetrics:         opts.EnableTopMetrics,
+		EnableDBStats:            opts.EnableDBStats,
+		EnableDBStatsFreeStorage: opts.EnableDBStatsFreeStorage,
+		EnableIndexStats:         opts.EnableIndexStats,
+		EnableCollStats:          opts.EnableCollStats,
+		EnableProfile:            opts.EnableProfile,
+		EnableShards:             opts.EnableShards,
+		EnableFCV:                opts.EnableFCV,
+		EnablePBMMetrics:         opts.EnablePBM,
+
+		EnableOverrideDescendingIndex: opts.EnableOverrideDescendingIndex,
+
+		CollStatsLimit:         opts.CollStatsLimit,
+		CollStatsEnableDetails: opts.CollStatsEnableDetails,
+		CollectAll:             opts.CollectAll,
+		ProfileTimeTS:          opts.ProfileTimeTS,
+		CurrentOpSlowTime:      opts.CurrentOpSlowTime,
+	}
+}
+
+func flagWalk(ctx *kong.Context, walkFunc func(string, string, *kong.Flag, bool)) {
+	setByUserMap := make(map[string]bool)
+	for _, trace := range ctx.Path {
+		if trace.Flag == nil {
+			continue
+		}
+
+		setByUserMap[trace.Flag.Name] = true
+	}
+
+	for _, flag := range ctx.Flags() {
+		sectionKeys := append([]string{flag.Name}, flag.Aliases...)
+		for _, sectionKey := range sectionKeys {
+			var section, key string
+			if parts := strings.SplitN(sectionKey, ".", 2); len(parts) > 1 {
+				section = parts[0]
+				key = parts[1]
+			} else {
+				key = parts[0]
+			}
+			walkFunc(section, key, flag, setByUserMap[flag.Name])
+		}
+	}
+}
+
+func configure(ctx *kong.Context, cfg *ini.File) error {
+	flagWalk(ctx, func(section, key string, flag *kong.Flag, set bool) {
+		if !set {
+			return
+		}
+
+		cfg.Section(section).Key(key).SetValue(fmt.Sprint(flag.Value.Target.Interface()))
+	})
+
+	if dsn := os.Getenv("DATA_SOURCE_NAME"); dsn != "" {
+		cfg.Section("exporter").Key("dsn").SetValue(strconv.Quote(dsn))
+	}
+
+	return nil
+}
+
+func overrideFlags(ctx *kong.Context, cfg *ini.File) {
+	flagWalk(ctx, func(section, key string, flag *kong.Flag, set bool) {
+		if set {
+			return
+		}
+
+		if !cfg.HasSection(section) || !cfg.Section(section).HasKey(key) {
+			return
+		}
+
+		switch flag.Value.Target.Kind() {
+		case reflect.Slice:
+			flag.Apply(reflect.ValueOf(cfg.Section(section).Key(key).ValueWithShadows()))
+		case reflect.Bool:
+			flag.Apply(reflect.ValueOf(cfg.Section(section).Key(key).MustBool(flag.Value.Target.Bool())))
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Float32, reflect.Int64:
+			flag.Apply(reflect.ValueOf(cfg.Section(section).Key(key).MustInt64(flag.Value.Target.Int())).Convert(flag.Value.Target.Type()))
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			flag.Apply(reflect.ValueOf(cfg.Section(section).Key(key).MustUint64(flag.Value.Target.Uint())).Convert(flag.Value.Target.Type()))
+		default:
+			flag.Apply(reflect.ValueOf(cfg.Section(section).Key(key).Value()).Convert(flag.Value.Target.Type()))
+		}
+	})
+}
+
+type authConfig struct {
+	ServerUser     string `yaml:"server_user,omitempty"`
+	ServerPassword string `yaml:"server_password,omitempty"`
+}
+
+type prometheusWebConfig struct {
+	TLSConfig tlsConfig         `yaml:"tls_server_config"`
+	Users     map[string]string `yaml:"basic_auth_users"`
+}
+
+type tlsConfig struct {
+	TLSCertPath  string          `yaml:"cert_file"`
+	TLSKeyPath   string          `yaml:"key_file"`
+	MinVersion   *web.TLSVersion `yaml:"min_version"`
+	MaxVersion   *web.TLSVersion `yaml:"max_version"`
+	CipherSuites []web.Cipher    `yaml:"cipher_suites,omitempty"`
 }

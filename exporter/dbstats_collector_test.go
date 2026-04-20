@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/bson"
 
-	"github.com/percona/mongodb_exporter/internal/tu"
+	"github.com/shatteredsilicon/mongodb_exporter/internal/tu"
 )
 
 const (

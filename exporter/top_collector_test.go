@@ -24,7 +24,7 @@ import (
 	"github.com/prometheus/common/promslog"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/percona/mongodb_exporter/internal/tu"
+	"github.com/shatteredsilicon/mongodb_exporter/internal/tu"
 )
 
 func TestTopCollector(t *testing.T) {
