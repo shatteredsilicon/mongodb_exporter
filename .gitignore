@@ -1,11 +1,15 @@
-# editor temp files
-*.sw[nop]
+.dist
+.env
 
-# build artifacts
+.vscode/
+.idea
+
+bin
+build
+dist
+
+cover.out
 mongodb_exporter
-coverage.txt
-coverage_temp.txt
-/.history
-/.idea
+.DS_Store
 
 vendor/

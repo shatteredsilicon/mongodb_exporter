@@ -18,10 +18,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
-	"github.com/prometheus/common/log"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -31,7 +31,7 @@ func RedactMongoUri(uri string) string {
 	if strings.HasPrefix(uri, "mongodb://") && strings.Contains(uri, "@") {
 		opts := options.Client().ApplyURI(uri)
 		if err := opts.Validate(); err != nil {
-			log.Errorf("Cannot parse mongodb server url: %s", err)
+			slog.Error(fmt.Sprintf("Cannot parse mongodb server url: %s", err))
 			return "unknown/error"
 		}
 		if opts.Auth.Username != "" && opts.Auth.Password != "" {
@@ -66,7 +66,7 @@ func MongoClient(ctx context.Context, opts *options.ClientOptions) (*mongo.Clien
 func MongoClientServerVersion(ctx context.Context, client *mongo.Client) (string, error) {
 	buildInfo, err := getBuildInfo(ctx, client)
 	if err != nil {
-		log.Errorf("Could not get MongoDB BuildInfo: %s!", err)
+		slog.Error(fmt.Sprintf("Could not get MongoDB BuildInfo: %s!", err))
 		return "unknown", err
 	}
 	return buildInfo.Version, nil
@@ -80,7 +80,7 @@ func MongoClientNodeType(ctx context.Context, client *mongo.Client) (string, err
 	}{}
 	err := client.Database("admin").RunCommand(ctx, bson.D{{"isMaster", 1}}).Decode(&masterDoc)
 	if err != nil {
-		log.Errorf("Got unknown node type: %s", err)
+		slog.Error(fmt.Sprintf("Got unknown node type: %s", err))
 		return "unknown", err
 	}
 
@@ -95,16 +95,10 @@ func MongoClientNodeType(ctx context.Context, client *mongo.Client) (string, err
 }
 
 // TestConnection connects to MongoDB and returns BuildInfo.
-func TestConnection(ctx context.Context, opts *options.ClientOptions) ([]byte, error) {
-	client, err := MongoClient(ctx, opts)
-	if err != nil || client == nil {
-		return nil, fmt.Errorf("cannot connect using uri '%s': %s", opts.GetURI(), err.Error())
-	}
-	defer client.Disconnect(ctx)
-
+func TestConnection(ctx context.Context, client *mongo.Client) ([]byte, error) {
 	buildInfo, err := getBuildInfo(ctx, client)
 	if err != nil {
-		return nil, fmt.Errorf("cannot get buildInfo() for MongoDB using uri '%s': %s", opts.GetURI(), err.Error())
+		return nil, fmt.Errorf("cannot get buildInfo() for MongoDB: %s", err.Error())
 	}
 
 	b, err := json.MarshalIndent(buildInfo, "", "  ")

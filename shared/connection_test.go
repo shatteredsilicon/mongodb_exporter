@@ -48,6 +48,11 @@ func TestMongoClient(t *testing.T) {
 }
 
 func TestTestConnection(t *testing.T) {
-	_, err := TestConnection(context.Background(), &options.ClientOptions{})
+	client, err := MongoClient(context.Background(), &options.ClientOptions{})
+	require.Nil(t, err)
+	require.NotNil(t, client)
+	defer client.Disconnect(context.Background())
+
+	_, err = TestConnection(context.Background(), client)
 	require.NoError(t, err)
 }
