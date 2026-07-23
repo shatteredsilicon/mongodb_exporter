@@ -207,7 +207,7 @@ func main() {
 		}
 	}
 
-	tlsMinVer := (web.TLSVersion)(tls.VersionTLS10)
+	tlsMinVer := (web.TLSVersion)(tls.VersionTLS12)
 	tlsMaxVer := (web.TLSVersion)(tls.VersionTLS13)
 	if opts.WebTLSMinVersion != "" {
 		if err := yaml.Unmarshal([]byte(opts.WebTLSMinVersion), &tlsMinVer); err != nil {
