@@ -26,7 +26,6 @@ import (
 	"os"
 	"reflect"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/alecthomas/kong"
@@ -134,17 +133,6 @@ func main() {
 	iniCfg, err := ini.Load(opts.Config)
 	if err != nil {
 		ctx.Fatalf("Failed to load config file %s: %s", opts.Config, err.Error())
-	}
-
-	if os.Getenv("ON_CONFIGURE") == "1" {
-		err := configure(ctx, iniCfg)
-		if err != nil {
-			os.Exit(1)
-		}
-		if err := iniCfg.SaveTo(opts.Config); err != nil {
-			os.Exit(1)
-		}
-		os.Exit(0)
 	}
 
 	// override flag value with config value
@@ -510,22 +498,6 @@ func flagWalk(ctx *kong.Context, walkFunc func(string, string, *kong.Flag, bool)
 			walkFunc(section, key, flag, setByUserMap[flag.Name])
 		}
 	}
-}
-
-func configure(ctx *kong.Context, cfg *ini.File) error {
-	flagWalk(ctx, func(section, key string, flag *kong.Flag, set bool) {
-		if !set {
-			return
-		}
-
-		cfg.Section(section).Key(key).SetValue(fmt.Sprint(flag.Value.Target.Interface()))
-	})
-
-	if dsn := os.Getenv("DATA_SOURCE_NAME"); dsn != "" {
-		cfg.Section("exporter").Key("dsn").SetValue(strconv.Quote(dsn))
-	}
-
-	return nil
 }
 
 func overrideFlags(ctx *kong.Context, cfg *ini.File) {
