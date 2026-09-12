@@ -1,6 +1,6 @@
 module github.com/shatteredsilicon/mongodb_exporter
 
-go 1.25.10
+go 1.25.9
 
 require (
 	github.com/alecthomas/kingpin/v2 v2.4.0
@@ -12,7 +12,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	go.mongodb.org/mongo-driver v1.17.7
 	go.yaml.in/yaml/v2 v2.4.4
-	golang.org/x/crypto v0.50.0
+	golang.org/x/crypto v0.49.0
 	gopkg.in/ini.v1 v1.67.0
 )
 
@@ -41,11 +41,11 @@ require (
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/xhit/go-str2duration/v2 v2.1.0 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20181117223130-1be2e3e5546d // indirect
-	golang.org/x/net v0.53.0 // indirect
+	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/oauth2 v0.34.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
-	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/sys v0.42.0 // indirect
+	golang.org/x/text v0.35.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
