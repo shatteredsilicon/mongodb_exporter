@@ -16,11 +16,10 @@ package mongod
 
 import (
 	"context"
-	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/log"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -32,24 +31,24 @@ var (
 		Name:      "info",
 		Help:      "Software version information for mongodb process.",
 	}, []string{"mongodb"})
-	instanceUptimeSecondsDesc = prometheus.NewDesc(
-		prometheus.BuildFQName(Namespace, "instance", "uptime_seconds"),
-		"The value of the uptime field corresponds to the number of seconds that the mongos or mongod process has been active.",
-		nil,
-		nil,
-	)
-	instanceUptimeEstimateSecondsDesc = prometheus.NewDesc(
-		prometheus.BuildFQName(Namespace, "instance", "uptime_estimate_seconds"),
-		"uptimeEstimate provides the uptime as calculated from MongoDB's internal course-grained time keeping system.",
-		nil,
-		nil,
-	)
-	instanceLocalTimeDesc = prometheus.NewDesc(
-		prometheus.BuildFQName(Namespace, "instance", "local_time"),
-		"The localTime value is the current time, according to the server, in UTC specified in an ISODate format.",
-		nil,
-		nil,
-	)
+	instanceUptimeSeconds = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: Namespace,
+		Subsystem: "instance",
+		Name:      "uptime_seconds",
+		Help:      "The value of the uptime field corresponds to the number of seconds that the mongos or mongod process has been active.",
+	})
+	instanceUptimeEstimateSeconds = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: Namespace,
+		Subsystem: "instance",
+		Name:      "uptime_estimate_seconds",
+		Help:      "uptimeEstimate provides the uptime as calculated from MongoDB's internal course-grained time keeping system.",
+	})
+	instanceLocalTime = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: Namespace,
+		Subsystem: "instance",
+		Name:      "local_time",
+		Help:      "The localTime value is the current time, according to the server, in UTC specified in an ISODate format.",
+	})
 )
 
 // ServerStatus keeps the data returned by the serverStatus() method.
@@ -93,10 +92,13 @@ type ServerStatus struct {
 // Export exports the server status to be consumed by prometheus.
 func (status *ServerStatus) Export(ch chan<- prometheus.Metric) {
 	versionInfo.WithLabelValues(status.Version).Set(1)
-	ch <- prometheus.MustNewConstMetric(instanceUptimeSecondsDesc, prometheus.CounterValue, status.Uptime)
-	ch <- prometheus.MustNewConstMetric(instanceUptimeEstimateSecondsDesc, prometheus.CounterValue, status.Uptime)
-	ch <- prometheus.MustNewConstMetric(instanceLocalTimeDesc, prometheus.CounterValue, float64(status.LocalTime.Unix()))
+	instanceUptimeSeconds.Set(status.Uptime)
+	instanceUptimeEstimateSeconds.Set(status.Uptime)
+	instanceLocalTime.Set(float64(status.LocalTime.Unix()))
 	versionInfo.Collect(ch)
+	instanceUptimeSeconds.Collect(ch)
+	instanceUptimeEstimateSeconds.Collect(ch)
+	instanceLocalTime.Collect(ch)
 
 	if status.Asserts != nil {
 		status.Asserts.Export(ch)
@@ -165,9 +167,9 @@ func (status *ServerStatus) Export(ch chan<- prometheus.Metric) {
 // Describe describes the server status for prometheus.
 func (status *ServerStatus) Describe(ch chan<- *prometheus.Desc) {
 	versionInfo.Describe(ch)
-	ch <- instanceUptimeSecondsDesc
-	ch <- instanceUptimeEstimateSecondsDesc
-	ch <- instanceLocalTimeDesc
+	instanceUptimeSeconds.Describe(ch)
+	instanceUptimeEstimateSeconds.Describe(ch)
+	instanceLocalTime.Describe(ch)
 
 	if status.Asserts != nil {
 		status.Asserts.Describe(ch)
@@ -230,7 +232,7 @@ func GetServerStatus(ctx context.Context, client *mongo.Client) *ServerStatus {
 	result := &ServerStatus{}
 	err := client.Database("admin").RunCommand(ctx, bson.D{{"serverStatus", 1}, {"recordStats", 0}}).Decode(result)
 	if err != nil {
-		slog.Error(fmt.Sprintf("Failed to get server status: %s", err))
+		log.Errorf("Failed to get server status: %s", err)
 		return nil
 	}
 

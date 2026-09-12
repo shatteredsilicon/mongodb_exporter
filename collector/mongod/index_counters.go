@@ -28,15 +28,14 @@ var (
 )
 
 var (
-	indexCountersTotalDesc = prometheus.NewDesc(
-		prometheus.BuildFQName(Namespace, "", "index_counters_total"),
-		"Total indexes by type",
-		[]string{"type"},
-		nil,
-	)
+	indexCountersTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: Namespace,
+		Name:      "index_counters_total",
+		Help:      "Total indexes by type",
+	}, []string{"type"})
 )
 
-// IndexCounterStats index counter stats
+//IndexCounterStats index counter stats
 type IndexCounterStats struct {
 	Accesses  float64 `bson:"accesses"`
 	Hits      float64 `bson:"hits"`
@@ -47,17 +46,20 @@ type IndexCounterStats struct {
 
 // Export exports the data to prometheus.
 func (indexCountersStats *IndexCounterStats) Export(ch chan<- prometheus.Metric) {
-	ch <- prometheus.MustNewConstMetric(indexCountersTotalDesc, prometheus.CounterValue, indexCountersStats.Accesses, "accesses")
-	ch <- prometheus.MustNewConstMetric(indexCountersTotalDesc, prometheus.CounterValue, indexCountersStats.Hits, "hits")
-	ch <- prometheus.MustNewConstMetric(indexCountersTotalDesc, prometheus.CounterValue, indexCountersStats.Misses, "misses")
-	ch <- prometheus.MustNewConstMetric(indexCountersTotalDesc, prometheus.CounterValue, indexCountersStats.Resets, "resets")
+	indexCountersTotal.WithLabelValues("accesses").Set(indexCountersStats.Accesses)
+	indexCountersTotal.WithLabelValues("hits").Set(indexCountersStats.Hits)
+	indexCountersTotal.WithLabelValues("misses").Set(indexCountersStats.Misses)
+	indexCountersTotal.WithLabelValues("resets").Set(indexCountersStats.Resets)
 
 	indexCountersMissRatio.Set(indexCountersStats.MissRatio)
+
+	indexCountersTotal.Collect(ch)
 	indexCountersMissRatio.Collect(ch)
+
 }
 
 // Describe describes the metrics for prometheus
 func (indexCountersStats *IndexCounterStats) Describe(ch chan<- *prometheus.Desc) {
-	ch <- indexCountersTotalDesc
+	indexCountersTotal.Describe(ch)
 	indexCountersMissRatio.Describe(ch)
 }

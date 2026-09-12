@@ -16,21 +16,21 @@ package mongos
 
 import (
 	"context"
-	"log/slog"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/log"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
 var (
-	shardingChangelogInfoDesc = prometheus.NewDesc(
-		prometheus.BuildFQName(Namespace, "sharding", "changelog_10min_total"),
-		"Total # of Cluster Balancer log events over the last 10 minutes",
-		[]string{"event"},
-		nil,
-	)
+	shardingChangelogInfo = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: Namespace,
+		Subsystem: "sharding",
+		Name:      "changelog_10min_total",
+		Help:      "Total # of Cluster Balancer log events over the last 10 minutes",
+	}, []string{"event"})
 )
 
 type ShardingChangelogSummaryId struct {
@@ -49,18 +49,18 @@ type ShardingChangelogStats struct {
 
 func (status *ShardingChangelogStats) Export(ch chan<- prometheus.Metric) {
 	// set all expected event types to zero first, so they show in results if there was no events in the current time period
-	ch <- prometheus.MustNewConstMetric(shardingChangelogInfoDesc, prometheus.CounterValue, 0, "moveChunk.start")
-	ch <- prometheus.MustNewConstMetric(shardingChangelogInfoDesc, prometheus.CounterValue, 0, "moveChunk.to")
-	ch <- prometheus.MustNewConstMetric(shardingChangelogInfoDesc, prometheus.CounterValue, 0, "moveChunk.to_failed")
-	ch <- prometheus.MustNewConstMetric(shardingChangelogInfoDesc, prometheus.CounterValue, 0, "moveChunk.from")
-	ch <- prometheus.MustNewConstMetric(shardingChangelogInfoDesc, prometheus.CounterValue, 0, "moveChunk.from_failed")
-	ch <- prometheus.MustNewConstMetric(shardingChangelogInfoDesc, prometheus.CounterValue, 0, "moveChunk.commit")
-	ch <- prometheus.MustNewConstMetric(shardingChangelogInfoDesc, prometheus.CounterValue, 0, "addShard")
-	ch <- prometheus.MustNewConstMetric(shardingChangelogInfoDesc, prometheus.CounterValue, 0, "removeShard.start")
-	ch <- prometheus.MustNewConstMetric(shardingChangelogInfoDesc, prometheus.CounterValue, 0, "shardCollection")
-	ch <- prometheus.MustNewConstMetric(shardingChangelogInfoDesc, prometheus.CounterValue, 0, "shardCollection.start")
-	ch <- prometheus.MustNewConstMetric(shardingChangelogInfoDesc, prometheus.CounterValue, 0, "split")
-	ch <- prometheus.MustNewConstMetric(shardingChangelogInfoDesc, prometheus.CounterValue, 0, "multi-split")
+	shardingChangelogInfo.WithLabelValues("moveChunk.start").Set(0)
+	shardingChangelogInfo.WithLabelValues("moveChunk.to").Set(0)
+	shardingChangelogInfo.WithLabelValues("moveChunk.to_failed").Set(0)
+	shardingChangelogInfo.WithLabelValues("moveChunk.from").Set(0)
+	shardingChangelogInfo.WithLabelValues("moveChunk.from_failed").Set(0)
+	shardingChangelogInfo.WithLabelValues("moveChunk.commit").Set(0)
+	shardingChangelogInfo.WithLabelValues("addShard").Set(0)
+	shardingChangelogInfo.WithLabelValues("removeShard.start").Set(0)
+	shardingChangelogInfo.WithLabelValues("shardCollection").Set(0)
+	shardingChangelogInfo.WithLabelValues("shardCollection.start").Set(0)
+	shardingChangelogInfo.WithLabelValues("split").Set(0)
+	shardingChangelogInfo.WithLabelValues("multi-split").Set(0)
 
 	// set counts for events found in our query
 	for _, item := range *status.Items {
@@ -68,20 +68,27 @@ func (status *ShardingChangelogStats) Export(ch chan<- prometheus.Metric) {
 		note := item.Id.Note
 		count := item.Count
 		switch event {
-		case "moveChunk.to", "moveChunk.from":
+		case "moveChunk.to":
 			if note == "success" || note == "" {
-				ch <- prometheus.MustNewConstMetric(shardingChangelogInfoDesc, prometheus.CounterValue, count, event)
+				shardingChangelogInfo.WithLabelValues(event).Set(count)
 			} else {
-				ch <- prometheus.MustNewConstMetric(shardingChangelogInfoDesc, prometheus.CounterValue, count, event+"_failed")
+				shardingChangelogInfo.WithLabelValues(event + "_failed").Set(count)
+			}
+		case "moveChunk.from":
+			if note == "success" || note == "" {
+				shardingChangelogInfo.WithLabelValues(event).Set(count)
+			} else {
+				shardingChangelogInfo.WithLabelValues(event + "_failed").Set(count)
 			}
 		default:
-			ch <- prometheus.MustNewConstMetric(shardingChangelogInfoDesc, prometheus.CounterValue, count, event)
+			shardingChangelogInfo.WithLabelValues(event).Set(count)
 		}
 	}
+	shardingChangelogInfo.Collect(ch)
 }
 
 func (status *ShardingChangelogStats) Describe(ch chan<- *prometheus.Desc) {
-	ch <- shardingChangelogInfoDesc
+	shardingChangelogInfo.Describe(ch)
 }
 
 func GetShardingChangelogStatus(ctx context.Context, client *mongo.Client) *ShardingChangelogStats {
@@ -94,7 +101,7 @@ func GetShardingChangelogStatus(ctx context.Context, client *mongo.Client) *Shar
 		{"$match", match},
 		{"$group", group},
 	}}); err != nil || cur.All(ctx, &qresults) != nil {
-		slog.Error("Failed to execute find query on 'config.changelog'!")
+		log.Error("Failed to execute find query on 'config.changelog'!")
 	}
 
 	results := &ShardingChangelogStats{}
